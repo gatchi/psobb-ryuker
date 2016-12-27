@@ -16,4 +16,6 @@ This project's goal is to produce a version of Tethealla that easy to work on vi
 * facilitate collaboration on the project's GitHub
 * make the project IDE independent
 
-As of right now, the code is a straight fork of Tethealla.  See the [Tethealla server setup instructions](https://www.pioneer2.net/community/threads/tethealla-server-setup-instructions.1/) to run this server.
+As of right now, the code will not compile.  If you're looking for a PSOBB server,
+check out [Tethealla server setup](https://www.pioneer2.net/community/threads/tethealla-server-setup-instructions.1/),
+which contain both instructions and binaries.
