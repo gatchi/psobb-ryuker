@@ -16,9 +16,9 @@
 #include	<time.h>
 
 #ifndef NO_SQL
-#include	<mysql.h>
+#include	"mysql/include/mysql.h"
 #endif
-#include	<md5.h>
+#include	"headers/md5.h"
 
 /* Computes the message digest for string inString.
    Prints out message digest, a space, the string (in quotes) and a
@@ -137,8 +137,7 @@ void LoadDataFile ( const char* filename, unsigned* count, void** data, unsigned
 **
 ********************************************************/
 
-int
-main( int argc, char * argv[] )
+int main( int argc, char * argv[] )
 {
 	char inputstr[255] = {0};
 	char username[17];

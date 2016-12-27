@@ -32,7 +32,7 @@
  */
 
 /* -- include the following line if the md5.h header file is separate -- */
-#include "md5.h"
+#include "include/md5.h"
 
 /* forward declaration */
 static void Transform ();
