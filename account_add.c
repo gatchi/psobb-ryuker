@@ -10,37 +10,17 @@
 
 //#define NO_SQL
 
-#include	<windows.h>
-#include	<stdio.h>
-#include	<string.h>
-#include	<time.h>
+#include <windows.h>
+#include <string.h>
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #ifndef NO_SQL
 #include	"mysql/include/mysql.h"
 #endif
-#include	"headers/md5.h"
-
-/* Computes the message digest for string inString.
-   Prints out message digest, a space, the string (in quotes) and a
-   carriage return.
- */
-void MDString (inString, outString)
-char *inString;
-char *outString;
-{
-	unsigned char c;
-  MD5_CTX mdContext;
-  unsigned int len = strlen (inString);
-
-  MD5Init (&mdContext);
-  MD5Update (&mdContext, inString, len);
-  MD5Final (&mdContext);
-  for (c=0;c<16;c++)
-  {
-	  *outString = mdContext.digest[c];
-	  outString++;
-  }
-}
+#include	"md5.h"
+#include	"utility.h"
 
 #ifdef NO_SQL
 
@@ -410,7 +390,8 @@ int main( int argc, char * argv[] )
 #endif
 	reg_seconds = (unsigned) regtime / 3600L;
 	ch = strlen (&password[0]);
-	_itoa (reg_seconds, &config_data[0], 10 );
+	//_itoa (reg_seconds, &config_data[0], 10 );
+	sprintf ( &config_data[0], "%d", reg_seconds );
 	//Throw some salt in the game ;)
 	sprintf (&password[ch], "_%s_salt", &config_data[0] );
 	//printf ("New password = %s\n", password );
