@@ -1,9 +1,3 @@
-ship_server.exe: $(SHIP_OBJS)
-
-login_server.exe: $(LOGIN_OBJS)
-
-patch_server.exe: $(PATCH_OBJS)
-
 account_add: account_add.o utility.o
 	gcc -o account_add account_add.o utility.o -L./mysql/lib-64 -llibmysql
 
