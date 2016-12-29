@@ -32,7 +32,8 @@
  */
 
 /* -- include the following line if the md5.h header file is separate -- */
-#include "include/md5.h"
+#include "md5.h"
+#include "stdafx.h"
 
 /* forward declaration */
 static void Transform ();
