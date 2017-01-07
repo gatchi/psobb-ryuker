@@ -123,10 +123,6 @@ int main( int argc, char * argv[] )
 		mysql_close( myData ) ;
 		return 1 ;
 	}
-	
-	//if( myData == NULL )
-		//printf( "myData is NULL" );
-	//mysql_close( myData );
 
 	printf( "Tethealla Server Account Addition\n" );
 	printf( "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n" );
@@ -140,8 +136,8 @@ int main( int argc, char * argv[] )
 		if (strlen(inputstr) < 17)
 		{
 			sprintf ( myQuery, "SELECT * from account_data WHERE username='%s'", inputstr );
+			
 			// Check to see if that account already exists.
-			//printf ("Executing MySQL query: %s\n", myQuery );
 			if (! mysql_query(myData,myQuery))
 			{
 				myResult = mysql_store_result( myData );
@@ -171,7 +167,7 @@ int main( int argc, char * argv[] )
 			printf( "Desired account name length should be 16 characters or less.\n" );
 	}
 	memcpy( username, inputstr, strlen(inputstr)+1 );
-	// Gunna use this to salt it up
+	// For salting the password
 	regtime = time(NULL);
 	
 	// Create password
@@ -245,7 +241,6 @@ int main( int argc, char * argv[] )
 
 	// Check to see if any accounts already registered in the database at all.
 	sprintf (&myQuery[0], "SELECT * from account_data" );
-	//printf ("Executing MySQL query: %s\n", myQuery );
 	
 	// Check to see if the e-mail address has already been registered to an account.
 	if ( ! mysql_query ( myData, myQuery ) )
@@ -263,12 +258,9 @@ int main( int argc, char * argv[] )
 
 	reg_seconds = (unsigned) regtime / 3600L;
 	ch = strlen( password );
-	//_itoa (reg_seconds, &config_data[0], 10 );
-	sprintf( &config_data[0], "%d", reg_seconds );
-	//Throw some salt in the game ;)
-	sprintf( &password[ch], "_%s_salt", &config_data[0] );
-	//printf ("New password = %s\n", password );
-	MDString( &password[0], &MDBuffer[0] );
+	sprintf( config_data, "%d", reg_seconds );
+	sprintf( &password[ch], "_%s_salt", config_data );
+	MDString( password, MDBuffer );
 	for (ch=0;ch<16;ch++)
 		sprintf (&md5password[ch*2], "%02x", (unsigned char) MDBuffer[ch]);
 	md5password[32] = 0;
@@ -277,16 +269,15 @@ int main( int argc, char * argv[] )
 		// First account created is always GM
 		guildcard_number = 42000001;
 
-		sprintf( &myQuery[0], "INSERT into account_data (username,password,email,regtime,guildcard,isgm,isactive) VALUES ('%s','%s','%s','%u','%u','1','1')", username, md5password, email, reg_seconds, guildcard_number );
+		sprintf( myQuery, "INSERT into account_data (username,password,email,regtime,guildcard,isgm,isactive) VALUES ('%s','%s','%s','%u','%u','1','1')", username, md5password, email, reg_seconds, guildcard_number );
 	}
 	else
 	{
-		sprintf( &myQuery[0], "INSERT into account_data (username,password,email,regtime,isactive) VALUES ('%s','%s','%s','%u','1')", username, md5password, email, reg_seconds );
+		sprintf( myQuery, "INSERT into account_data (username,password,email,regtime,isactive) VALUES ('%s','%s','%s','%u','1')", username, md5password, email, reg_seconds );
 	}
+	
 	// Insert into table.
-	//printf ("Executing MySQL query: %s\n", myQuery );
-
-	if ( ! mysql_query ( myData, &myQuery[0] ) )
+	if ( ! mysql_query ( myData, myQuery ) )
 		printf( "Account successfully added to the database!" );
 	else
 	{

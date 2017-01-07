@@ -1,7 +1,7 @@
 # 32-bit version
 
 account_add: account_add.o utility.o  md5.o
-	gcc -o account_add account_add.o utility.o md5.o -L./mysql/lib -llibmysql -lmysqlclient
+	gcc -o account_add account_add.o utility.o md5.o -L./mysql/lib -llibmysql
 
 account_add.o: account_add.c
 	gcc -I./headers -c account_add.c
