@@ -1,6 +1,16 @@
 # 32-bit version
 
-account_add: account_add.o utility.o  md5.o
+all: char_export.o account_add.o utility.o md5.o
+	gcc -o char_export char_export.o -L./mysql/lib -llibmysql
+	gcc -o account_add account_add.o utility.o md5.o -L./mysql/lib -llibmysql
+
+char_export: char_export.o
+	gcc -o char_export char_export.o -L./mysql/lib -llibmysql
+
+char_export.o: char_export.c
+	gcc -I./headers -c char_export.c
+
+account_add: account_add.o utility.o md5.o
 	gcc -o account_add account_add.o utility.o md5.o -L./mysql/lib -llibmysql
 
 account_add.o: account_add.c

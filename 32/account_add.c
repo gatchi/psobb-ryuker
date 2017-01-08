@@ -2,7 +2,7 @@
 /*	Author:	gatchi												
 /*	Date:	12/26/16										
 /*	accountadd.c :  Adds an account to the Ryuker PSO			
-/*			server...											
+/*			          server.
 /*															
 /*	History:													
 /*		07/22/2008  TC  First version...
