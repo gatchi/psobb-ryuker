@@ -87,7 +87,6 @@
 #include	"pso_crypt.h"
 #include	"bbtable.h"
 #include	"localgms.h"
-#include	"prs.cpp"
 #include	"def_map.h" // Map file name definitions
 #include	"def_block.h" // Blocked packet definitions
 #include	"def_packets.h" // Pre-made packet definitions
