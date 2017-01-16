@@ -5,13 +5,16 @@ CFLAGS = -I./headers
 all: char_export account_add	
 	
 ship_server: ship_server.o prs.o
-	gcc -o ship_server ship_server.o prs.o
+	gcc -o ship_server ship_server.o prs.o mtwist.o
 
 ship_server.o: ./ship_server/ship_server.c
 	gcc $(CFLAGS) ./ship_server/ship_server.c
 	
 prs.o: prs.c
 	gcc $(CFLAGS) prs.cpp
+	
+mtwist.o: mtwist.c
+	gcc $(CFLAGS) mtwist.c
 	
 char_export: char_export.o utility.o md5.o
 	gcc -o char_export char_export.o utility.o md5.o -L./mysql/lib -llibmysql

@@ -31,6 +31,8 @@
 //
 // Allow quests to be reloaded while people are in them... somehow!
 
+// These look like settings...
+
 #define SERVER_VERSION "0.144"
 #define USEADDR_ANY
 #define TCP_BUFFER_SIZE 64000
@@ -97,10 +99,6 @@ const unsigned char Message03[] = { "Tethealla Ship v.144" };
 
 /* function defintions */
 
-extern void	mt_bestseed(void);
-extern void	mt_seed(void);	/* Choose seed from random input. */
-extern unsigned long	mt_lrand(void);	/* Generate 32-bit random value */
-
 char* Unicode_to_ASCII (unsigned short* ucs);
 void WriteLog(char *fmt, ...);
 void WriteGM(char *fmt, ...);
@@ -138,24 +136,14 @@ FILE* debugfile;
 
 // Random drop rates
 
-unsigned WEAPON_DROP_RATE,
-ARMOR_DROP_RATE,
-MAG_DROP_RATE,
-TOOL_DROP_RATE,
-MESETA_DROP_RATE,
-EXPERIENCE_RATE;
-unsigned common_rates[5] = { 0 };
+unsigned int WEAPON_DROP_RATE, ARMOR_DROP_RATE, MAG_DROP_RATE, TOOL_DROP_RATE, MESETA_DROP_RATE, EXPERIENCE_RATE;
+unsigned int common_rates[5] = { 0 };
 
-// Rare monster appearance rates
+// Rare monster appearance rates (why is only one of them initialized to zero?
 
-unsigned	hildebear_rate, 
-			rappy_rate,
-			lily_rate,
-			slime_rate,
-			merissa_rate,
-			pazuzu_rate,
-			dorphon_rate,
-			kondrieu_rate = 0;
+unsigned int hildebear_rate, rappy_rate, lily_rate, slime_rate, merissa_rate, pazuzu_rate, dorphon_rate, kondrieu_rate = 0;
+
+// What the fuck is this shit?
 
 unsigned common_counters[5] = {0};
 
@@ -188,6 +176,8 @@ unsigned normalName = 0xFFFFFFFF;
 unsigned globalName = 0xFF1D94F7;
 unsigned localName = 0xFFB0C4DE;
 
+// What's this?
+
 unsigned short ship_banmasks[5000][4] = {0}; // IP address ban masks
 BANDATA ship_bandata[5000];
 unsigned num_masks = 0;
@@ -198,7 +188,8 @@ unsigned num_bans = 0;
 PTDATA pt_tables_ep1[10][4];
 PTDATA pt_tables_ep2[10][4];
 
-// Episode I parsed PT data
+// Episode I parsed PT data (PT?)
+// Holy shit are these tables???
 
 unsigned short weapon_drops_ep1[10][4][10][4096];
 unsigned char slots_ep1[10][4][4096];
@@ -220,15 +211,21 @@ unsigned char attachment_ep2[10][4][10][4096];
 
 
 /* Rare tables */
+// WHY ARENT THESE IN A SQL DATABASE
 
 unsigned rt_tables_ep1[0x200 * 10 * 4] = {0}; 
 unsigned rt_tables_ep2[0x200 * 10 * 4] = {0};
 unsigned rt_tables_ep4[0x200 * 10 * 4] = {0};
 
+// What's this
+
 unsigned char startingData[12*14];
 playerLevel playerLevelData[12][200];
 
+// ???
 fd_set ReadFDs, WriteFDs, ExceptFDs;
+
+// Is this here just like.... miscellaneous vars....
 
 saveLobby savedlobbies[MAX_SAVED_LOBBIES];
 unsigned char dp[TCP_BUFFER_SIZE*4];
@@ -263,6 +260,7 @@ unsigned ship_index;
 unsigned char ship_key[128];
 
 // New leet parameter tables!!!!111oneoneoneeleven
+// Goddammit....
 
 unsigned char armor_equip_table[256] = {0};
 unsigned char barrier_equip_table[256] = {0};
@@ -280,15 +278,21 @@ unsigned char stackable_table[256] = {0};
 unsigned equip_prices[2][13][24][80] = {0};
 char max_tech_level[19][12];
 
+// And this is just by itself for some reason....
 PSO_CRYPT* cipher_ptr;
+
+// Hmm, this kinda looks like a Windows thing... maybe tray icon shit?
 
 #define MYWM_NOTIFYICON (WM_USER+2)
 int program_hidden = 1;
 HWND consoleHwnd;
 
-unsigned wstrlen ( unsigned short* dest )
+/*
+	A custom implementation of strlen for some reason.
+*/
+unsigned int wstrlen ( unsigned short* dest )
 {
-	unsigned l = 0;
+	unsigned int l = 0;
 	while (*dest != 0x0000)
 	{
 		l+= 2;
@@ -297,6 +301,10 @@ unsigned wstrlen ( unsigned short* dest )
 	return l;
 }
 
+/*
+	Custom implementation of strcopy for some reason.
+	But for short ints....
+*/
 void wstrcpy ( unsigned short* dest, const unsigned short* src )
 {
 	while (*src != 0x0000)
@@ -304,6 +312,16 @@ void wstrcpy ( unsigned short* dest, const unsigned short* src )
 	*(dest++) = 0x0000;
 }
 
+/*
+	Welp, saved the best for last apparently.
+	I've never heard of "strcopy_char".  Probably because strings are
+	NORMALLY a string of chars (i just realized that the above function
+	takes in a short pointer, not a char pointer).
+	Interestingly, this not only syncs the addresses of the source and the
+	destination but it sets the next three addresses to 0... as if to pad.
+	
+	Something to note: chars are smaller than (and usually half the size of) shorts.
+*/
 void wstrcpy_char ( char* dest, const char* src )
 {
 	while (*src != 0x00)
@@ -315,6 +333,10 @@ void wstrcpy_char ( char* dest, const char* src )
 	*(dest++) = 0x00;
 }
 
+/*
+	The ol' PSO packets.
+	Generates text from them and then puts them in a buffer.
+*/
 void packet_to_text ( unsigned char* buf, int len )
 {
 	int c, c2, c3, c4;
@@ -365,24 +387,30 @@ void packet_to_text ( unsigned char* buf, int len )
 	dp[c2] = 0;
 }
 
-
+/*
+	Prints the packet to terminal but not without
+	generating text from the packet first.
+*/
 void display_packet ( unsigned char* buf, int len )
 {
 	packet_to_text ( buf, len );
 	printf ("%s\n\n", &dp[0]);
 }
 
+/*
+	Not sure what IPData is, if its just an IP address or something  more.
+	Gets it from ship.ini
+*/
 void convertIPString (char* IPData, unsigned IPLen, int fromConfig, unsigned char* IPStore )
 {
-	unsigned p,p2,p3;
+	unsigned p,p2=0,p3=0;			// These are counters, i think
 	char convert_buffer[5];
 
-	p2 = 0;
-	p3 = 0;
-	for (p=0;p<IPLen;p++)
+	for (p=0; p<IPLen; p++)
 	{
 		if ((IPData[p] > 0x20) && (IPData[p] != 46))
-			convert_buffer[p3++] = IPData[p]; else
+			convert_buffer[p3++] = IPData[p];
+		else
 		{
 			convert_buffer[p3] = 0;
 			if (IPData[p] == 46) // .
@@ -418,14 +446,16 @@ void convertIPString (char* IPData, unsigned IPLen, int fromConfig, unsigned cha
 	}
 }
 
+/*
+	Mask... maybe that IP mask thing (like 255.255.255.0) that filters
+	out IPs.  Not sure why this is needed.  But also gotten from ship.ini.
+*/
 void convertMask (char* IPData, unsigned IPLen, unsigned short* IPStore )
 {
-	unsigned p,p2,p3;
+	unsigned p,p2=0,p3=0;
 	char convert_buffer[5];
 
-	p2 = 0;
-	p3 = 0;
-	for (p=0;p<IPLen;p++)
+	for (p=0; p<IPLen; p++)
 	{
 		if ((IPData[p] > 0x20) && (IPData[p] != 46))
 			convert_buffer[p3++] = IPData[p]; else
@@ -461,7 +491,12 @@ void convertMask (char* IPData, unsigned IPLen, unsigned short* IPStore )
 	}
 }
 
-
+/*
+	Apparently this can be done with short strings using strol, stroll,
+	and strtoimax (use 16 for base for that last one).
+	If the input is longer than number-of-bits-in-the-longest-integer-type/4
+	then this method is required for converting hex strings into byte arrays.
+*/
 unsigned char hexToByte ( char* hs )
 {
 	unsigned b;
@@ -472,6 +507,11 @@ unsigned char hexToByte ( char* hs )
 	return (unsigned char) b;
 }
 
+/*
+	Yet another settings file.
+	Loads a file that stores the IP ban masks.
+	(These should all either use json or sql instead.)
+*/
 void load_mask_file()
 {
 	char mask_data[255];
@@ -727,6 +767,10 @@ void load_config_file()
 		load_mask_file();
 }
 
+// "ORANGE" and "BANANA" are apparently the names of two huge structs.
+// BANANA is, according to one persosn, the "main server struct".
+// Both of these WILL be given new, more descriptive names at a later time.
+
 ORANGE logon_structure;
 BANANA * connections[SHIP_COMPILED_MAX_CONNECTIONS];
 ORANGE * logon_connecion;
@@ -735,10 +779,13 @@ ORANGE * logon;
 unsigned logon_tick = 0;
 unsigned logon_ready = 0;
 
+// ...null characters?  In between the letters?  Why?
+
 const char serverName[] = { "T\0E\0T\0H\0E\0A\0L\0L\0A\0" };
 const char shipSelectString[] = {"S\0h\0i\0p\0 \0S\0e\0l\0e\0c\0t\0"};
 const char blockString[] = {"B\0L\0O\0C\0K\0"};
 
+// Send 8 what...
 void Send08(BANANA* client)
 {
 	BLOCK* b;
@@ -847,6 +894,9 @@ void Send08(BANANA* client)
 	}
 }
 
+/*
+	Im guessing by "block" it means a ship block.
+*/
 void ConstructBlockPacket()
 {
 	unsigned short Offset;
@@ -881,21 +931,21 @@ void ConstructBlockPacket()
 	Offset = 0x36;
 	for (ch=0;ch<serverBlocks;ch++)
 	{
-				Packet07Data[Offset] = 0x12;
-				BlockID = 0xEFFFFFFF - ch;
-				*(unsigned *) &Packet07Data[Offset+2] = BlockID;
-				memcpy (&Packet07Data[Offset+0x08], &blockString[0], 10 );
-				if ( ch+1 < 10 )
-				{
-					Packet07Data[Offset+0x12] = 0x30;
-					Packet07Data[Offset+0x14] = 0x30 + (ch+1);
-				}
-				else
-				{
-					Packet07Data[Offset+0x12] = 0x31;
-					Packet07Data[Offset+0x14] = 0x30;
-				}
-				Offset += 0x2C;
+		Packet07Data[Offset] = 0x12;
+		BlockID = 0xEFFFFFFF - ch;
+		*(unsigned *) &Packet07Data[Offset+2] = BlockID;
+		memcpy (&Packet07Data[Offset+0x08], &blockString[0], 10 );
+		if ( ch+1 < 10 )
+		{
+			Packet07Data[Offset+0x12] = 0x30;
+			Packet07Data[Offset+0x14] = 0x30 + (ch+1);
+		}
+		else
+		{
+			Packet07Data[Offset+0x12] = 0x31;
+			Packet07Data[Offset+0x14] = 0x30;
+		}
+		Offset += 0x2C;
 	}
 	Packet07Data[Offset] = 0x12;
 	BlockID = 0xFFFFFF00;
@@ -1215,6 +1265,10 @@ void Send83 (BANANA* client)
 
 }
 
+/*
+	Does this free the game from memory or does this start
+	some sort of "free" game?  What does it mean by game?
+*/
 unsigned free_game (BANANA* client)
 {
 	unsigned ch;
@@ -2106,6 +2160,9 @@ void LoadMapData (LOBBY* l, int aMob, const char* filename)
 	}
 };
 
+/*
+	This function is probably waaaaaaaay bigger than it needs to be.
+*/
 void initialize_game (BANANA* client)
 {
 	LOBBY* l;
@@ -2754,6 +2811,7 @@ void Send95 (BANANA* client)
 	}
 }
 
+// "Quest flag"?
 int qflag (unsigned char* flag_data, unsigned flag, unsigned difficulty)
 {
 	if (flag_data[(difficulty * 0x80) + ( flag >> 3 )] & (1 << (7 - ( flag & 0x07 ))))
@@ -3095,13 +3153,11 @@ void SendA0 (BANANA* client)
 	encryptcopy (client, &PacketA0Data[0], *(unsigned short *) &PacketA0Data[0]);
 }
 
-
 void Send07 (BANANA* client)
 {
 	cipher_ptr = &client->server_cipher;
 	encryptcopy (client, &Packet07Data[0], *(unsigned short *) &Packet07Data[0]);
 }
-
 
 void SendB0 (const char *mes, BANANA* client)
 {
@@ -3207,6 +3263,10 @@ void BroadcastToAll (unsigned short *mes, BANANA* client)
 	client->announce = 0;
 }
 
+/*
+	Not sure yet what the difference is between this and
+	"BroadcastToAll" is.
+*/
 void GlobalBroadcast (unsigned short *mes)
 {
 	unsigned short xEE_Len;
@@ -6328,27 +6388,27 @@ void MagLV10Evolution ( MAG* m, unsigned char sectionID, unsigned char type, int
 {
 	switch ( type )
 	{
-	case CLASS_HUMAR:
-	case CLASS_HUNEWEARL:
-	case CLASS_HUCAST:
-	case CLASS_HUCASEAL:
-		m->mtype = Mag_Varuna;
-		AddPB ( &m->PBflags, &m->blasts, PB_Farlla);
-		break;
-	case CLASS_RAMAR:
-	case CLASS_RACAST:
-	case CLASS_RACASEAL:
-	case CLASS_RAMARL:
-		m->mtype = Mag_Kalki;
-		AddPB ( &m->PBflags, &m->blasts, PB_Estlla);
-		break;
-	case CLASS_FONEWM:
-	case CLASS_FONEWEARL:
-	case CLASS_FOMARL:
-	case CLASS_FOMAR:
-		m->mtype = Mag_Vritra;
-		AddPB ( &m->PBflags, &m->blasts, PB_Leilla);
-		break;
+		case CLASS_HUMAR:
+		case CLASS_HUNEWEARL:
+		case CLASS_HUCAST:
+		case CLASS_HUCASEAL:
+			m->mtype = Mag_Varuna;
+			AddPB ( &m->PBflags, &m->blasts, PB_Farlla);
+			break;
+		case CLASS_RAMAR:
+		case CLASS_RACAST:
+		case CLASS_RACASEAL:
+		case CLASS_RAMARL:
+			m->mtype = Mag_Kalki;
+			AddPB ( &m->PBflags, &m->blasts, PB_Estlla);
+			break;
+		case CLASS_FONEWM:
+		case CLASS_FONEWEARL:
+		case CLASS_FOMARL:
+		case CLASS_FOMAR:
+			m->mtype = Mag_Vritra;
+			AddPB ( &m->PBflags, &m->blasts, PB_Leilla);
+			break;
 	}
 }
 
@@ -12160,38 +12220,38 @@ void CommandED(BANANA* client)
 {
 	switch (client->decryptbuf[0x03])
 	{
-	case 0x01:
-		// Options
-		*(unsigned *) &client->character.options[0] = *(unsigned *) &client->decryptbuf[0x08];
-		break;
-	case 0x02:
-		// Symbol Chats
-		memcpy (&client->character.symbol_chats, &client->decryptbuf[0x08], 1248);
-		break;
-	case 0x03:
-		// Shortcuts
-		memcpy (&client->character.shortcuts, &client->decryptbuf[0x08], 2624);
-		break;
-	case 0x04:
-		// Global Key Config
-		memcpy (&client->character.keyConfigGlobal, &client->decryptbuf[0x08], 364);
-		break;
-	case 0x05:
-		// Global Joystick Config
-		memcpy (&client->character.joyConfigGlobal, &client->decryptbuf[0x08], 56);
-		break;
-	case 0x06:
-		// Technique Config
-		memcpy (&client->character.techConfig, &client->decryptbuf[0x08], 40);
-		break;
-	case 0x07:
-		// Character Key Config
-		memcpy (&client->character.keyConfig, &client->decryptbuf[0x08], 232);
-		break;
-	case 0x08:
-		// C-Rank and Battle Config
-		//memcpy (&client->character.challengeData, &client->decryptbuf[0x08], 320);
-		break;
+		case 0x01:
+			// Options
+			*(unsigned *) &client->character.options[0] = *(unsigned *) &client->decryptbuf[0x08];
+			break;
+		case 0x02:
+			// Symbol Chats
+			memcpy (&client->character.symbol_chats, &client->decryptbuf[0x08], 1248);
+			break;
+		case 0x03:
+			// Shortcuts
+			memcpy (&client->character.shortcuts, &client->decryptbuf[0x08], 2624);
+			break;
+		case 0x04:
+			// Global Key Config
+			memcpy (&client->character.keyConfigGlobal, &client->decryptbuf[0x08], 364);
+			break;
+		case 0x05:
+			// Global Joystick Config
+			memcpy (&client->character.joyConfigGlobal, &client->decryptbuf[0x08], 56);
+			break;
+		case 0x06:
+			// Technique Config
+			memcpy (&client->character.techConfig, &client->decryptbuf[0x08], 40);
+			break;
+		case 0x07:
+			// Character Key Config
+			memcpy (&client->character.keyConfig, &client->decryptbuf[0x08], 232);
+			break;
+		case 0x08:
+			// C-Rank and Battle Config
+			//memcpy (&client->character.challengeData, &client->decryptbuf[0x08], 320);
+			break;
 	}
 }
 
@@ -16435,7 +16495,7 @@ void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned size)
 }
 
 
-void pso_crypt_table_init_bb(PSO_CRYPT *pcry, const unsigned char *salt)
+void pso_crypt_table_init_bb (PSO_CRYPT *pcry, const unsigned char *salt)
 {
 	unsigned long eax, ecx, edx, ebx, ebp, esi, edi, ou, x;
 	unsigned char s[48];
@@ -16683,7 +16743,7 @@ void pso_crypt_table_init_bb(PSO_CRYPT *pcry, const unsigned char *salt)
 	}
 }
 
-unsigned RleEncode(unsigned char *src, unsigned char *dest, unsigned src_size)
+unsigned RleEncode (unsigned char *src, unsigned char *dest, unsigned src_size)
 {
 	unsigned char currChar, prevChar;             /* current and previous characters */
 	unsigned short count;                /* number of characters in a run */
@@ -16736,7 +16796,7 @@ unsigned RleEncode(unsigned char *src, unsigned char *dest, unsigned src_size)
 	return (unsigned)dest - dest_start;
 }
 
-void RleDecode(unsigned char *src, unsigned char *dest, unsigned src_size)
+void RleDecode (unsigned char *src, unsigned char *dest, unsigned src_size)
 {
     unsigned char currChar, prevChar;             /* current and previous characters */
     unsigned short count;                /* number of characters in a run */
@@ -16780,7 +16840,7 @@ void RleDecode(unsigned char *src, unsigned char *dest, unsigned src_size)
 
 /* expand a key (makes a rc4_key) */
 
-void prepare_key(unsigned char *keydata, unsigned len, struct rc4_key *key)
+void prepare_key (unsigned char *keydata, unsigned len, struct rc4_key *key)
 {
     unsigned index1, index2, counter;
     unsigned char *state;
@@ -16806,7 +16866,7 @@ void prepare_key(unsigned char *keydata, unsigned len, struct rc4_key *key)
 
 /* reversible encryption, will encode a buffer updating the key */
 
-void rc4(unsigned char *buffer, unsigned len, struct rc4_key *key)
+void rc4 (unsigned char *buffer, unsigned len, struct rc4_key *key)
 {
     unsigned x, y, xorIndex, counter;
     unsigned char *state;
