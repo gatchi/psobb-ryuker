@@ -456,7 +456,7 @@ typedef struct st_banana {
 	int isgm;
 	int dress_flag;
 	unsigned connection_index;
-} BANANA;
+} PSO_CLIENT;
 
 typedef struct st_dressflag {
 	unsigned guildcard;
@@ -502,7 +502,7 @@ typedef struct st_orange {
 	unsigned connected;
 	unsigned last_ping;
 	int sent_ping;
-} ORANGE;
+} PSO_SERVER;
 
 fd_set ReadFDs, WriteFDs, ExceptFDs;
 
@@ -639,10 +639,10 @@ void prepare_key(unsigned char *keydata, unsigned len, struct rc4_key *key);
 
 PSO_CRYPT* cipher_ptr;
 
-void encryptcopy (BANANA* client, const unsigned char* src, unsigned size);
+void encryptcopy (PSO_CLIENT* client, const unsigned char* src, unsigned size);
 void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned size);
-void compressShipPacket ( ORANGE* ship, unsigned char* src, unsigned long src_size );
-void decompressShipPacket ( ORANGE* ship, unsigned char* dest, unsigned char* src );
+void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size );
+void decompressShipPacket ( PSO_SERVER* ship, unsigned char* dest, unsigned char* src );
 
 #ifdef NO_SQL
 
@@ -1165,10 +1165,10 @@ void load_config_file()
 	}
 }
 
-BANANA * connections[LOGIN_COMPILED_MAX_CONNECTIONS];
-ORANGE * ships[SHIP_COMPILED_MAX_CONNECTIONS];
-BANANA * workConnect;
-ORANGE * workShip;
+PSO_CLIENT * connections[LOGIN_COMPILED_MAX_CONNECTIONS];
+PSO_SERVER * ships[SHIP_COMPILED_MAX_CONNECTIONS];
+PSO_CLIENT * workConnect;
+PSO_SERVER * workShip;
 
 unsigned char PacketA0Data[0x4000] = {0};
 unsigned short PacketA0Size = 0;
@@ -1178,7 +1178,7 @@ const char NoShips[9] = "No ships!";
 
 void construct0xA0()
 {
-	ORANGE* shipcheck;
+	PSO_SERVER* shipcheck;
 	unsigned totalShips = 0xFFFFFFF4;
 	unsigned short A0Offset;
 	char* shipName;
@@ -1252,7 +1252,7 @@ void construct0xA0()
 unsigned free_connection()
 {
 	unsigned fc;
-	BANANA* wc;
+	PSO_CLIENT* wc;
 
 	for (fc=0;fc<serverMaxConnections;fc++)
 	{
@@ -1266,7 +1266,7 @@ unsigned free_connection()
 unsigned free_shipconnection()
 {
 	unsigned fc;
-	ORANGE* wc;
+	PSO_SERVER* wc;
 
 	for (fc=0;fc<serverMaxShips;fc++)
 	{
@@ -1278,7 +1278,7 @@ unsigned free_shipconnection()
 }
 
 
-void initialize_connection (BANANA* connect)
+void initialize_connection (PSO_CLIENT* connect)
 {
 	unsigned ch, ch2;
 
@@ -1293,14 +1293,14 @@ void initialize_connection (BANANA* connect)
 		serverNumConnections = ch2;
 		closesocket (connect->plySockfd);
 	}
-	memset (connect, 0, sizeof (BANANA));
+	memset (connect, 0, sizeof (PSO_CLIENT));
 	connect->plySockfd = -1;
 	connect->login = -1;
 	connect->lastTick = 0xFFFFFFFF;
 	connect->connected = 0xFFFFFFFF;
 }
 
-void initialize_ship (ORANGE* ship)
+void initialize_ship (PSO_SERVER* ship)
 {
 	unsigned ch, ch2;
 
@@ -1318,7 +1318,7 @@ void initialize_ship (ORANGE* ship)
 		serverNumShips = ch2;
 		closesocket (ship->shipSockfd);
 	}
-	memset (ship, 0, sizeof (ORANGE) );
+	memset (ship, 0, sizeof (PSO_SERVER) );
 	for (ch=0;ch<128;ch++)
 		ship->key_change[ch] = -1;
 	ship->shipSockfd = -1;
@@ -1327,10 +1327,10 @@ void initialize_ship (ORANGE* ship)
 	construct0xA0(); // Removes inactive ships
 }
 
-void start_encryption(BANANA* connect)
+void start_encryption(PSO_CLIENT* connect)
 {
 	unsigned c, c3, c4, connectNum;
-	BANANA *workConnect, *c5;
+	PSO_CLIENT *workConnect, *c5;
 
 	// Limit the number of connections from an IP address to MAX_SIMULTANEOUS_CONNECTIONS.
 
@@ -1389,7 +1389,7 @@ void start_encryption(BANANA* connect)
 	connect->connected = (unsigned) servertime;
 }
 
-void SendB1 (BANANA* client)
+void SendB1 (PSO_CLIENT* client)
 {
 	SYSTEMTIME rawtime;
 
@@ -1407,7 +1407,7 @@ void SendB1 (BANANA* client)
 		client->todc = 1;
 }
 
-void Send1A (const char *mes, BANANA* client)
+void Send1A (const char *mes, PSO_CLIENT* client)
 {
 	unsigned short x1A_Len;
 
@@ -1431,7 +1431,7 @@ void Send1A (const char *mes, BANANA* client)
 	client->todc = 1;
 }
 
-void SendA0 (BANANA* client)
+void SendA0 (PSO_CLIENT* client)
 {
 	if ((client->guildcard) && (client->slotnum != -1))
 	{
@@ -1443,7 +1443,7 @@ void SendA0 (BANANA* client)
 }
 
 
-void SendEE (const char *mes, BANANA* client)
+void SendEE (const char *mes, PSO_CLIENT* client)
 {
 	unsigned short xEE_Len;
 
@@ -1469,7 +1469,7 @@ void SendEE (const char *mes, BANANA* client)
 	}
 }
 
-void Send19 (unsigned char ip1, unsigned char ip2, unsigned char ip3, unsigned char ip4, unsigned short ipp, BANANA* client)
+void Send19 (unsigned char ip1, unsigned char ip2, unsigned char ip3, unsigned char ip4, unsigned short ipp, PSO_CLIENT* client)
 {
 	memcpy ( &client->encryptbuf[0], &Packet19, sizeof (Packet19));
 	client->encryptbuf[0x08] = ip1;
@@ -1483,7 +1483,7 @@ void Send19 (unsigned char ip1, unsigned char ip2, unsigned char ip3, unsigned c
 
 unsigned char key_data_send[840+10] = {0};
 
-void SendE2 (BANANA* client)
+void SendE2 (PSO_CLIENT* client)
 {
 	int key_exists = 0;
 
@@ -1578,7 +1578,7 @@ unsigned char DefaultTeamFlagSlashes[4098];
 unsigned char DefaultTeamFlag[2048];
 unsigned char FlagSlashes[4098];
 
-void AckCharacter_Creation(unsigned char slotnum, BANANA* client)
+void AckCharacter_Creation(unsigned char slotnum, PSO_CLIENT* client)
 {
 	unsigned short *n;
 #ifndef NO_SQL
@@ -2006,7 +2006,7 @@ void AckCharacter_Creation(unsigned char slotnum, BANANA* client)
 	else
 		client->todc = 1;
 }
-void SendE4_E5(unsigned char slotnum, unsigned char selecting, BANANA* client)
+void SendE4_E5(unsigned char slotnum, unsigned char selecting, PSO_CLIENT* client)
 {
 	int char_exists = 0;
 	MINICHAR* mc;
@@ -2170,7 +2170,7 @@ void SendE4_E5(unsigned char slotnum, unsigned char selecting, BANANA* client)
 		client->todc = 1;
 }
 
-void SendE8 (BANANA* client)
+void SendE8 (PSO_CLIENT* client)
 {
 	if ((client->guildcard) && (!client->sendCheck[SEND_PACKET_E8]))
 	{
@@ -2182,7 +2182,7 @@ void SendE8 (BANANA* client)
 		client->todc = 1;
 }
 
-void SendEB (unsigned char subCommand, unsigned char EBOffset, BANANA* client)
+void SendEB (unsigned char subCommand, unsigned char EBOffset, PSO_CLIENT* client)
 {
 	unsigned CalcOffset;
 
@@ -2214,7 +2214,7 @@ void SendEB (unsigned char subCommand, unsigned char EBOffset, BANANA* client)
 		client->todc = 1;
 }
 
-void SendDC (int sendChecksum, unsigned char PacketNum, BANANA* client)
+void SendDC (int sendChecksum, unsigned char PacketNum, PSO_CLIENT* client)
 {
 	unsigned gc_ofs = 0, 
 		total_guilds = 0;
@@ -2356,7 +2356,7 @@ const unsigned char RC4publicKey[32] = {
 	6, 95, 151, 28, 140, 243, 130, 61, 107, 234, 243, 172, 77, 24, 229, 156
 };
 
-void ShipSend0F (unsigned char episode, unsigned char part, ORANGE* ship)
+void ShipSend0F (unsigned char episode, unsigned char part, PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x0F;
 	ship->encryptbuf[0x01] = episode;
@@ -2376,7 +2376,7 @@ void ShipSend0F (unsigned char episode, unsigned char part, ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0], 3 + (sizeof (rt_tables_ep1) >> 1) );
 }
 
-void ShipSend10 (ORANGE* ship)
+void ShipSend10 (PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x10;
 	ship->encryptbuf[0x01] = 0x00;
@@ -2384,7 +2384,7 @@ void ShipSend10 (ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0], 34 );
 }
 
-void ShipSend11 (ORANGE* ship)
+void ShipSend11 (PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x11;
 	ship->encryptbuf[0x01] = 0x00;
@@ -2394,7 +2394,7 @@ void ShipSend11 (ORANGE* ship)
 }
 
 
-void ShipSend00 (ORANGE* ship)
+void ShipSend00 (PSO_SERVER* ship)
 {
 	unsigned char ch, ch2;
 
@@ -2417,10 +2417,10 @@ void ShipSend00 (ORANGE* ship)
 
 /* Ship authentication result */
 
-void ShipSend02 (unsigned char result, ORANGE* ship)
+void ShipSend02 (unsigned char result, PSO_SERVER* ship)
 {
 	unsigned si,ch,shipNum;
-	ORANGE* tempShip;
+	PSO_SERVER* tempShip;
 
 	ship->encryptbuf [0x00] = 0x02;
 	ship->encryptbuf [0x01] = result;
@@ -2454,7 +2454,7 @@ void ShipSend02 (unsigned char result, ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], si );
 }
 
-void ShipSend08 (unsigned gcn, ORANGE* ship)
+void ShipSend08 (unsigned gcn, PSO_SERVER* ship)
 {
 	// Tell the other ships this user logged on and to disconnect him/her if they're still active...
 	ship->encryptbuf[0x00] = 0x08;
@@ -2464,10 +2464,10 @@ void ShipSend08 (unsigned gcn, ORANGE* ship)
 }
 
 
-void ShipSend0D (unsigned char command, ORANGE* ship)
+void ShipSend0D (unsigned char command, PSO_SERVER* ship)
 {
 	unsigned shipNum;
-	ORANGE* tship;
+	PSO_SERVER* tship;
 
 	switch (command)
 	{
@@ -2628,7 +2628,7 @@ unsigned short gccomment[45] = {0x305C};
 unsigned char check_key[32];
 unsigned char check_key2[32];
 
-void ShipProcessPacket (ORANGE* ship)
+void ShipProcessPacket (PSO_SERVER* ship)
 {
 	unsigned cv, shipNum;
 	int pass;
@@ -2666,7 +2666,7 @@ void ShipProcessPacket (ORANGE* ship)
 		{
 			//unsigned ch, sameIP;
 			unsigned ch2, shipOK;
-			//ORANGE* tship;
+			//PSO_SERVER* tship;
 
 			shipOK = 1;
 
@@ -3633,7 +3633,7 @@ void ShipProcessPacket (ORANGE* ship)
 			{
 				unsigned clientGcn, friendGcn, ch, teamid;
 				int gc_exists = 0;
-				ORANGE* tship;
+				PSO_SERVER* tship;
 
 				friendGcn = *(unsigned*) &ship->decryptbuf[0x06];
 				clientGcn = *(unsigned*) &ship->decryptbuf[0x0A];
@@ -3724,7 +3724,7 @@ void ShipProcessPacket (ORANGE* ship)
 			cv--;
 			if (cv < serverMaxShips)
 			{
-				ORANGE* tship;
+				PSO_SERVER* tship;
 
 				tship = ships[cv];
 				if ((tship->shipSockfd >= 0) && (tship->authed == 1))
@@ -3736,7 +3736,7 @@ void ShipProcessPacket (ORANGE* ship)
 			{
 				unsigned clientGcn, friendGcn, ch, teamid;
 				int gc_exists = 0;
-				ORANGE* tship;
+				PSO_SERVER* tship;
 
 				friendGcn = *(unsigned*) &ship->decryptbuf[0x36];
 				clientGcn = *(unsigned*) &ship->decryptbuf[0x12];
@@ -4086,7 +4086,7 @@ void ShipProcessPacket (ORANGE* ship)
 		case 0x04:
 			// Team Chat
 			{
-				ORANGE* tship;
+				PSO_SERVER* tship;
 				unsigned size,ch;
 
 				size = *(unsigned*) &ship->decryptbuf[0x00];
@@ -4460,7 +4460,7 @@ void ShipProcessPacket (ORANGE* ship)
 	case 0x12:
 		// Global announcement
 		{
-			ORANGE* tship;
+			PSO_SERVER* tship;
 			unsigned size,ch;
 
 			size = *(unsigned *) &ship->decryptbuf[0x00];
@@ -4484,7 +4484,7 @@ void ShipProcessPacket (ORANGE* ship)
 }
 
 
-void CharacterProcessPacket (BANANA* client)
+void CharacterProcessPacket (PSO_CLIENT* client)
 {
 	char username[17];
 	char password[34];
@@ -4511,7 +4511,7 @@ void CharacterProcessPacket (BANANA* client)
 	case 0x10:
 		if ((client->guildcard) && (client->slotnum != -1))
 		{
-			ORANGE* tship;
+			PSO_SERVER* tship;
 
 			selected = *(unsigned *) &client->decryptbuf[0x0C];
 			for (ch=0;ch<serverNumShips;ch++)
@@ -4955,7 +4955,7 @@ void CharacterProcessPacket (BANANA* client)
 	}
 }
 
-void LoginProcessPacket (BANANA* client)
+void LoginProcessPacket (PSO_CLIENT* client)
 {
 	char username[17];
 	char password[34];
@@ -4969,7 +4969,7 @@ void LoginProcessPacket (BANANA* client)
 #ifdef NO_SQL
 	long long truehwinfo;
 #endif
-	ORANGE* tship;
+	PSO_SERVER* tship;
 #ifndef NO_SQL
 	char security_sixtyfour_binary[18];
 #endif
@@ -5662,10 +5662,10 @@ main( int argc, char * argv[] )
 	printf ("Character Port: %u\n", serverPort+1 );
 	printf ("Maximum Connections: %u\n", serverMaxConnections );
 	printf ("Maximum Ships: %u\n\n", serverMaxShips );
-	printf ("Allocating %u bytes of memory for connections...", sizeof (BANANA) * serverMaxConnections );
+	printf ("Allocating %u bytes of memory for connections...", sizeof (PSO_CLIENT) * serverMaxConnections );
 	for (ch=0;ch<serverMaxConnections;ch++)
 	{
-		connections[ch] = malloc ( sizeof (BANANA) );
+		connections[ch] = malloc ( sizeof (PSO_CLIENT) );
 		if ( !connections[ch] )
 		{
 			printf ("Out of memory!\n");
@@ -5676,11 +5676,11 @@ main( int argc, char * argv[] )
 		initialize_connection (connections[ch]);
 	}
 	printf (" OK!\n");
-	printf ("Allocating %u bytes of memory for ships...", sizeof (ORANGE) * serverMaxShips );
+	printf ("Allocating %u bytes of memory for ships...", sizeof (PSO_SERVER) * serverMaxShips );
 	memset (&ships, 0, 4 * serverMaxShips);
 	for (ch=0;ch<serverMaxShips;ch++)
 	{
-		ships[ch] = malloc ( sizeof (ORANGE) );
+		ships[ch] = malloc ( sizeof (PSO_SERVER) );
 		if ( !ships[ch] )
 		{
 			printf ("Out of memory!\n");
@@ -6594,7 +6594,7 @@ void pso_crypt_encrypt_bb(PSO_CRYPT *pcry, unsigned char *data, unsigned
 	}
 }
 
-void encryptcopy (BANANA* client, const unsigned char* src, unsigned size)
+void encryptcopy (PSO_CLIENT* client, const unsigned char* src, unsigned size)
 {
 	unsigned char* dest;
 
@@ -7018,7 +7018,7 @@ void rc4(unsigned char *buffer, unsigned len, struct rc4_key *key)
     key->x = x; key->y = y;
 }
 
-void compressShipPacket ( ORANGE* ship, unsigned char* src, unsigned long src_size )
+void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size )
 {
 	unsigned char* dest;
 	unsigned long result;
@@ -7058,7 +7058,7 @@ void compressShipPacket ( ORANGE* ship, unsigned char* src, unsigned long src_si
 	}
 }
 
-void decompressShipPacket ( ORANGE* ship, unsigned char* dest, unsigned char* src )
+void decompressShipPacket ( PSO_SERVER* ship, unsigned char* dest, unsigned char* src )
 {
 	unsigned src_size, dest_size;
 	unsigned char *srccpy;

@@ -102,13 +102,13 @@ const unsigned char Message03[] = { "Tethealla Ship v.144" };
 char* Unicode_to_ASCII (unsigned short* ucs);
 void WriteLog(char *fmt, ...);
 void WriteGM(char *fmt, ...);
-void ShipSend04 (unsigned char command, BANANA* client, ORANGE* ship);
-void ShipSend0E (ORANGE* ship);
-void Send01 (const char *text, BANANA* client);
-void ShowArrows (BANANA* client, int to_all);
-unsigned char* MakePacketEA15 (BANANA* client);
+void ShipSend04 (unsigned char command, PSO_CLIENT* client, PSO_SERVER* ship);
+void ShipSend0E (PSO_SERVER* ship);
+void Send01 (const char *text, PSO_CLIENT* client);
+void ShowArrows (PSO_CLIENT* client, int to_all);
+unsigned char* MakePacketEA15 (PSO_CLIENT* client);
 void SendToLobby (LOBBY* l, unsigned max_send, unsigned char* src, unsigned short size, unsigned nosend );
-void removeClientFromLobby (BANANA* client);
+void removeClientFromLobby (PSO_CLIENT* client);
 
 void debug(char *fmt, ...);
 void debug_perror(char * msg);
@@ -117,12 +117,12 @@ int tcp_accept (int sockfd, struct sockaddr *client_addr, int *addr_len );
 int tcp_sock_connect(char* dest_addr, int port);
 int tcp_sock_open(struct in_addr ip, int port);
 
-void encryptcopy (BANANA* client, const unsigned char* src, unsigned size);
+void encryptcopy (PSO_CLIENT* client, const unsigned char* src, unsigned size);
 void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned size);
 
 void prepare_key(unsigned char *keydata, unsigned len, struct rc4_key *key);
-void compressShipPacket ( ORANGE* ship, unsigned char* src, unsigned long src_size );
-void decompressShipPacket ( ORANGE* ship, unsigned char* dest, unsigned char* src );
+void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size );
+void decompressShipPacket ( PSO_SERVER* ship, unsigned char* dest, unsigned char* src );
 int qflag (unsigned char* flag_data, unsigned flag, unsigned difficulty);
 
 /* variables */
@@ -767,15 +767,11 @@ void load_config_file()
 		load_mask_file();
 }
 
-// "ORANGE" and "BANANA" are apparently the names of two huge structs.
-// BANANA is, according to one persosn, the "main server struct".
-// Both of these WILL be given new, more descriptive names at a later time.
-
-ORANGE logon_structure;
-BANANA * connections[SHIP_COMPILED_MAX_CONNECTIONS];
-ORANGE * logon_connecion;
-BANANA * workConnect;
-ORANGE * logon;
+PSO_SERVER logon_structure;
+PSO_CLIENT * connections[SHIP_COMPILED_MAX_CONNECTIONS];
+PSO_SERVER * logon_connecion;
+PSO_CLIENT * workConnect;
+PSO_SERVER * logon;
 unsigned logon_tick = 0;
 unsigned logon_ready = 0;
 
@@ -786,7 +782,7 @@ const char shipSelectString[] = {"S\0h\0i\0p\0 \0S\0e\0l\0e\0c\0t\0"};
 const char blockString[] = {"B\0L\0O\0C\0K\0"};
 
 // Send 8 what...
-void Send08(BANANA* client)
+void Send08(PSO_CLIENT* client)
 {
 	BLOCK* b;
 	unsigned ch,ch2,qNum;
@@ -968,7 +964,7 @@ void initialize_logon()
 	logon = &logon_structure;
 	if ( logon->sockfd >= 0 )
 		closesocket ( logon->sockfd );
-	memset (logon, 0, sizeof (ORANGE));
+	memset (logon, 0, sizeof (PSO_SERVER));
 	logon->sockfd = -1;
 	for (ch=0;ch<128;ch++)
 		logon->key_change[ch] = -1;
@@ -994,7 +990,7 @@ void reconnect_logon()
 unsigned free_connection()
 {
 	unsigned fc;
-	BANANA* wc;
+	PSO_CLIENT* wc;
 
 	for (fc=0;fc<serverMaxConnections;fc++)
 	{
@@ -1005,7 +1001,7 @@ unsigned free_connection()
 	return 0xFFFF;
 }
 
-void initialize_connection (BANANA* connect)
+void initialize_connection (PSO_CLIENT* connect)
 {
 	unsigned ch, ch2;
 
@@ -1051,7 +1047,7 @@ void initialize_connection (BANANA* connect)
 		ShipSend0E (logon);
 	}
 
-	memset (connect, 0, sizeof (BANANA) );
+	memset (connect, 0, sizeof (PSO_CLIENT) );
 	connect->plySockfd = -1;
 	connect->block = -1;
 	connect->lastTick = 0xFFFFFFFF;
@@ -1059,10 +1055,10 @@ void initialize_connection (BANANA* connect)
 	connect->sending_quest = -1;
 }
 
-void start_encryption(BANANA* connect)
+void start_encryption(PSO_CLIENT* connect)
 {
 	unsigned c, c3, c4, connectNum;
-	BANANA *workConnect, *c5;
+	PSO_CLIENT *workConnect, *c5;
 
 	// Limit the number of connections from an IP address to MAX_SIMULTANEOUS_CONNECTIONS.
 
@@ -1141,7 +1137,7 @@ void SendToLobby (LOBBY* l, unsigned max_send, unsigned char* src, unsigned shor
 }
 
 
-void removeClientFromLobby (BANANA* client)
+void removeClientFromLobby (PSO_CLIENT* client)
 {
 	unsigned ch, maxch, lowestID;
 
@@ -1210,7 +1206,7 @@ void removeClientFromLobby (BANANA* client)
 }
 
 
-void Send1A (const char *mes, BANANA* client)
+void Send1A (const char *mes, PSO_CLIENT* client)
 {
 	unsigned short x1A_Len;
 
@@ -1234,7 +1230,7 @@ void Send1A (const char *mes, BANANA* client)
 	encryptcopy (client, &PacketData[0], x1A_Len);
 }
 
-void Send1D (BANANA* client)
+void Send1D (PSO_CLIENT* client)
 {
 	unsigned num_minutes;
 
@@ -1258,7 +1254,7 @@ void Send1D (BANANA* client)
 	}
 }
 
-void Send83 (BANANA* client)
+void Send83 (PSO_CLIENT* client)
 {
 	cipher_ptr = &client->server_cipher;
 	encryptcopy (client, &Packet83[0], sizeof (Packet83));
@@ -1269,7 +1265,7 @@ void Send83 (BANANA* client)
 	Does this free the game from memory or does this start
 	some sort of "free" game?  What does it mean by game?
 */
-unsigned free_game (BANANA* client)
+unsigned free_game (PSO_CLIENT* client)
 {
 	unsigned ch;
 	LOBBY* l;
@@ -2163,7 +2159,7 @@ void LoadMapData (LOBBY* l, int aMob, const char* filename)
 /*
 	This function is probably waaaaaaaay bigger than it needs to be.
 */
-void initialize_game (BANANA* client)
+void initialize_game (PSO_CLIENT* client)
 {
 	LOBBY* l;
 	unsigned ch;
@@ -2546,7 +2542,7 @@ void initialize_game (BANANA* client)
 		Send1A ("Bad game arguments supplied.", client);
 }
 
-void Send64 (BANANA* client)
+void Send64 (PSO_CLIENT* client)
 {
 	LOBBY* l;
 	unsigned Offset;
@@ -2664,10 +2660,10 @@ void Send64 (BANANA* client)
 	client->bursting = 1;
 }
 
-void Send67 (BANANA* client, unsigned char preferred)
+void Send67 (PSO_CLIENT* client, unsigned char preferred)
 {
 	BLOCK* b;
-	BANANA* lClient;
+	PSO_CLIENT* lClient;
 	LOBBY* l;
 	unsigned Offset = 0, Offset2 = 0;
 	unsigned ch, ch2;
@@ -2790,7 +2786,7 @@ void Send67 (BANANA* client, unsigned char preferred)
 	client->bursting = 1;
 }
 
-void Send95 (BANANA* client)
+void Send95 (PSO_CLIENT* client)
 {
 	client->lobbyOK = 1;
 	memset (&client->encryptbuf[0x00], 0, 8);
@@ -2833,7 +2829,7 @@ int qflag_ep1solo(unsigned char* flag_data, unsigned difficulty)
 	return 1;
 }
 
-void SendA2 (unsigned char episode, unsigned char solo, unsigned char category, unsigned char gov, BANANA* client)
+void SendA2 (unsigned char episode, unsigned char solo, unsigned char category, unsigned char gov, PSO_CLIENT* client)
 {
 	QUEST_MENU* qm = 0;
 	QUEST* q;
@@ -3147,19 +3143,19 @@ void SendA2 (unsigned char episode, unsigned char solo, unsigned char category, 
 	encryptcopy (client, &PacketData[0], Offset);
 }
 
-void SendA0 (BANANA* client)
+void SendA0 (PSO_CLIENT* client)
 {
 	cipher_ptr = &client->server_cipher;
 	encryptcopy (client, &PacketA0Data[0], *(unsigned short *) &PacketA0Data[0]);
 }
 
-void Send07 (BANANA* client)
+void Send07 (PSO_CLIENT* client)
 {
 	cipher_ptr = &client->server_cipher;
 	encryptcopy (client, &Packet07Data[0], *(unsigned short *) &Packet07Data[0]);
 }
 
-void SendB0 (const char *mes, BANANA* client)
+void SendB0 (const char *mes, PSO_CLIENT* client)
 {
 	unsigned short xB0_Len;
 
@@ -3183,7 +3179,7 @@ void SendB0 (const char *mes, BANANA* client)
 }
 
 
-void BroadcastToAll (unsigned short *mes, BANANA* client)
+void BroadcastToAll (unsigned short *mes, PSO_CLIENT* client)
 {
 	unsigned short xEE_Len;
 	unsigned short *pd;
@@ -3302,7 +3298,7 @@ void GlobalBroadcast (unsigned short *mes)
 }
 
 
-void SendEE (const char *mes, BANANA* client)
+void SendEE (const char *mes, PSO_CLIENT* client)
 {
 	unsigned short xEE_Len;
 
@@ -3325,7 +3321,7 @@ void SendEE (const char *mes, BANANA* client)
 	encryptcopy (client, &PacketData[0], xEE_Len);
 }
 
-void Send19 (unsigned char ip1, unsigned char ip2, unsigned char ip3, unsigned char ip4, unsigned short ipp, BANANA* client)
+void Send19 (unsigned char ip1, unsigned char ip2, unsigned char ip3, unsigned char ip4, unsigned short ipp, PSO_CLIENT* client)
 {
 	memcpy ( &client->encryptbuf[0], &Packet19, sizeof (Packet19));
 	client->encryptbuf[0x08] = ip1;
@@ -3337,7 +3333,7 @@ void Send19 (unsigned char ip1, unsigned char ip2, unsigned char ip3, unsigned c
 	encryptcopy (client, &client->encryptbuf[0], sizeof (Packet19));
 }
 
-void SendEA (unsigned char command, BANANA* client)
+void SendEA (unsigned char command, PSO_CLIENT* client)
 {
 	switch (command)
 	{
@@ -3416,7 +3412,7 @@ void SendEA (unsigned char command, BANANA* client)
 	case 0x13:
 		{
 			LOBBY *l;
-			BANANA *lClient;
+			PSO_CLIENT *lClient;
 			unsigned ch, total_clients, EA15Offset, maxc;
 
 			if (!client->lobby)
@@ -3522,7 +3518,7 @@ void SendEA (unsigned char command, BANANA* client)
 	}
 }
 
-unsigned char* MakePacketEA15 (BANANA* client)
+unsigned char* MakePacketEA15 (PSO_CLIENT* client)
 {
 	sprintf (&PacketData[0x00], "\x64\x08\xEA\x15\x01");
 	memset  (&PacketData[0x05], 0, 3);
@@ -3589,7 +3585,7 @@ unsigned free_game_item (LOBBY* l)
 	return 0;
 }
 
-void UpdateGameItem (BANANA* client)
+void UpdateGameItem (PSO_CLIENT* client)
 {
 	// Updates the game item list for all of the client's items...  (Used strictly when a client joins a game...)
 
@@ -3612,7 +3608,7 @@ void UpdateGameItem (BANANA* client)
 INVENTORY_ITEM sort_data[30];
 BANK_ITEM bank_data[200];
 
-void SortClientItems (BANANA* client)
+void SortClientItems (PSO_CLIENT* client)
 {
 	unsigned ch, ch2, ch3, ch4, itemid;
 
@@ -3650,7 +3646,7 @@ void SortClientItems (BANANA* client)
 
 }
 
-void CleanUpBank (BANANA* client)
+void CleanUpBank (PSO_CLIENT* client)
 {
 	unsigned ch, ch2 = 0;
 
@@ -3674,7 +3670,7 @@ void CleanUpBank (BANANA* client)
 
 }
 
-void CleanUpInventory (BANANA* client)
+void CleanUpInventory (PSO_CLIENT* client)
 {
 	unsigned ch, ch2 = 0;
 
@@ -3718,7 +3714,7 @@ void CleanUpGameInventory (LOBBY* l)
 	l->gameItemCount = item_count;
 }
 
-unsigned AddItemToClient (unsigned itemid, BANANA* client)
+unsigned AddItemToClient (unsigned itemid, PSO_CLIENT* client)
 {
 	unsigned ch, itemNum = 0;
 	int found_item = -1;
@@ -3822,7 +3818,7 @@ unsigned AddItemToClient (unsigned itemid, BANANA* client)
 	return item_added;
 }
 
-void DeleteMesetaFromClient (unsigned count, unsigned drop, BANANA* client)
+void DeleteMesetaFromClient (unsigned count, unsigned drop, PSO_CLIENT* client)
 {
 	unsigned stack_count, newItemNum;
 	LOBBY* l;
@@ -3874,7 +3870,7 @@ void DeleteMesetaFromClient (unsigned count, unsigned drop, BANANA* client)
 }
 
 
-void SendItemToEnd (unsigned itemid, BANANA* client)
+void SendItemToEnd (unsigned itemid, PSO_CLIENT* client)
 {
 	unsigned ch;
 	INVENTORY_ITEM i;
@@ -3899,7 +3895,7 @@ void SendItemToEnd (unsigned itemid, BANANA* client)
 }
 
 
-void DeleteItemFromClient (unsigned itemid, unsigned count, unsigned drop, BANANA* client)
+void DeleteItemFromClient (unsigned itemid, unsigned count, unsigned drop, PSO_CLIENT* client)
 {
 	unsigned ch, ch2, itemNum;
 	int found_item = -1;
@@ -4021,7 +4017,7 @@ void DeleteItemFromClient (unsigned itemid, unsigned count, unsigned drop, BANAN
 
 }
 
-unsigned WithdrawFromBank (unsigned itemid, unsigned count, BANANA* client)
+unsigned WithdrawFromBank (unsigned itemid, unsigned count, PSO_CLIENT* client)
 {
 	unsigned ch;
 	int found_item = -1;
@@ -4161,7 +4157,7 @@ unsigned WithdrawFromBank (unsigned itemid, unsigned count, BANANA* client)
 	return item_added;
 }
 
-void SortBankItems (BANANA* client)
+void SortBankItems (PSO_CLIENT* client)
 {
 	unsigned ch, ch2;
 	unsigned compare_item1 = 0;
@@ -4199,7 +4195,7 @@ void SortBankItems (BANANA* client)
 	}
 }
 
-void DepositIntoBank (unsigned itemid, unsigned count, BANANA* client)
+void DepositIntoBank (unsigned itemid, unsigned count, PSO_CLIENT* client)
 {
 	unsigned ch, ch2;
 	int found_item = -1;
@@ -4333,7 +4329,7 @@ void DepositIntoBank (unsigned itemid, unsigned count, BANANA* client)
 		CleanUpInventory (client);
 }
 
-void DeleteFromInventory (INVENTORY_ITEM* i, unsigned count, BANANA* client)
+void DeleteFromInventory (INVENTORY_ITEM* i, unsigned count, PSO_CLIENT* client)
 {
 	unsigned ch, ch2;
 	int found_item = -1;
@@ -4431,7 +4427,7 @@ void DeleteFromInventory (INVENTORY_ITEM* i, unsigned count, BANANA* client)
 
 }
 
-unsigned AddToInventory (INVENTORY_ITEM* i, unsigned count, int shop, BANANA* client)
+unsigned AddToInventory (INVENTORY_ITEM* i, unsigned count, int shop, PSO_CLIENT* client)
 {
 	unsigned ch;
 	unsigned char stackable = 0;
@@ -4543,7 +4539,7 @@ unsigned AddToInventory (INVENTORY_ITEM* i, unsigned count, int shop, BANANA* cl
 }
 
 
-void ShipSend04 (unsigned char command, BANANA* client, ORANGE* ship)
+void ShipSend04 (unsigned char command, PSO_CLIENT* client, PSO_SERVER* ship)
 {
 	//unsigned ch;
 
@@ -4577,7 +4573,7 @@ void ShipSend04 (unsigned char command, BANANA* client, ORANGE* ship)
 	}
 }
 
-void ShipSend0E (ORANGE* ship)
+void ShipSend0E (PSO_SERVER* ship)
 {
 	if (logon_ready)
 	{
@@ -4589,7 +4585,7 @@ void ShipSend0E (ORANGE* ship)
 	}
 }
 
-void ShipSend0D (unsigned char command, BANANA* client, ORANGE* ship)
+void ShipSend0D (unsigned char command, PSO_CLIENT* client, PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x0D;
 	switch (command)
@@ -4605,7 +4601,7 @@ void ShipSend0D (unsigned char command, BANANA* client, ORANGE* ship)
 	}
 }
 
-void ShipSend0B (BANANA* client, ORANGE* ship)
+void ShipSend0B (PSO_CLIENT* client, PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x0B;
 	ship->encryptbuf[0x01] = 0x00;
@@ -4751,7 +4747,7 @@ void FixItem (ITEM* i )
 
 const char lobbyString[] = { "L\0o\0b\0b\0y\0 \0" };
 
-void LogonProcessPacket (ORANGE* ship)
+void LogonProcessPacket (PSO_SERVER* ship)
 {
 	unsigned gcn, ch, ch2, connectNum;
 	unsigned char episode, part;
@@ -4891,7 +4887,7 @@ void LogonProcessPacket (ORANGE* ship)
 			{
 				// Receive and store full player data here.
 				//
-				BANANA* client;
+				PSO_CLIENT* client;
 				unsigned guildcard,ch,ch2,eq_weapon,eq_armor,eq_shield,eq_mag;
 				int sockfd;
 				unsigned short baseATP, baseMST, baseEVP, baseHP, baseDFP, baseATA;
@@ -5155,7 +5151,7 @@ void LogonProcessPacket (ORANGE* ship)
 		case 0x03:
 			{
 				unsigned guildcard;
-				BANANA* client;
+				PSO_CLIENT* client;
 				
 				guildcard = *(unsigned *) &ship->decryptbuf[0x06];
 
@@ -5366,7 +5362,7 @@ void LogonProcessPacket (ORANGE* ship)
 		// Reserved for team functions.
 		switch (ship->decryptbuf[0x05])
 		{
-			BANANA* client;
+			PSO_CLIENT* client;
 			unsigned char CreateResult;
 
 		case 0x00:
@@ -5413,7 +5409,7 @@ void LogonProcessPacket (ORANGE* ship)
 			// Flag updated
 			{
 				unsigned teamid;
-				BANANA* tClient;
+				PSO_CLIENT* tClient;
 
 				teamid = *(unsigned *) &ship->decryptbuf[0x07];
 
@@ -5433,7 +5429,7 @@ void LogonProcessPacket (ORANGE* ship)
 			// Team dissolved
 			{
 				unsigned teamid;
-				BANANA* tClient;
+				PSO_CLIENT* tClient;
 
 				teamid = *(unsigned *) &ship->decryptbuf[0x07];
 
@@ -5454,7 +5450,7 @@ void LogonProcessPacket (ORANGE* ship)
 			// Team chat
 			{
 				unsigned teamid, size;
-				BANANA* tClient;
+				PSO_CLIENT* tClient;
 
 				size = *(unsigned *) &ship->decryptbuf[0x00];
 				size -= 10;
@@ -5478,7 +5474,7 @@ void LogonProcessPacket (ORANGE* ship)
 			{
 				unsigned gcn;
 				unsigned short size;
-				BANANA* tClient;
+				PSO_CLIENT* tClient;
 
 				gcn = *(unsigned *) &ship->decryptbuf[0x0A];
 				size = *(unsigned short*) &ship->decryptbuf[0x0E];
@@ -5506,7 +5502,7 @@ void LogonProcessPacket (ORANGE* ship)
 		gcn = *(unsigned *) &ship->decryptbuf[0x06];
 		if (ship->decryptbuf[0x05] == 0)
 		{
-			BANANA* client;
+			PSO_CLIENT* client;
 
 			// Finish up the logon process here.
 
@@ -6444,7 +6440,7 @@ void CheckMagEvolution ( MAG* m, unsigned char sectionID, unsigned char type, in
 }
 
 
-void FeedMag (unsigned magid, unsigned itemid, BANANA* client)
+void FeedMag (unsigned magid, unsigned itemid, PSO_CLIENT* client)
 {
 	int found_mag = -1;
 	int found_item = -1;
@@ -6706,7 +6702,7 @@ void CheckMaxGrind (INVENTORY_ITEM* i)
 }
 
 
-void UseItem (unsigned itemid, BANANA* client)
+void UseItem (unsigned itemid, PSO_CLIENT* client)
 {
 	unsigned found_item = 0, ch, ch2;
 	INVENTORY_ITEM i;
@@ -7488,7 +7484,7 @@ int check_equip (unsigned char eq_flags, unsigned char cl_flags)
 	return eqOK;
 }
 
-void EquipItem (unsigned itemid, BANANA* client)
+void EquipItem (unsigned itemid, PSO_CLIENT* client)
 {
 	unsigned ch, ch2, found_item, found_slot;
 	unsigned slot[4];
@@ -7618,7 +7614,7 @@ void EquipItem (unsigned itemid, BANANA* client)
 	}
 }
 
-void DeequipItem (unsigned itemid, BANANA* client)
+void DeequipItem (unsigned itemid, PSO_CLIENT* client)
 {
 	unsigned ch, ch2, found_item = 0;
 
@@ -7846,7 +7842,7 @@ unsigned GetShopPrice(INVENTORY_ITEM* ci)
 	return (unsigned) price;
 }
 
-void SkipToLevel (unsigned short target_level, BANANA* client, int quiet)
+void SkipToLevel (unsigned short target_level, PSO_CLIENT* client, int quiet)
 {
 	MAG* m;
 	unsigned short ch, finalDFP, finalATP, finalATA, finalMST;
@@ -7912,7 +7908,7 @@ void SkipToLevel (unsigned short target_level, BANANA* client, int quiet)
 }
 
 
-void AddExp (unsigned XP, BANANA* client)
+void AddExp (unsigned XP, PSO_CLIENT* client)
 {
 	MAG* m;
 	unsigned short levelup, ch, finalDFP, finalATP, finalATA, finalMST;
@@ -8055,7 +8051,7 @@ int PreppedGuildCard ( unsigned from, unsigned to )
 	return gc_present;
 }
 
-int ban ( unsigned gc_num, unsigned* ipaddr, long long* hwinfo, unsigned type, BANANA* client )
+int ban ( unsigned gc_num, unsigned* ipaddr, long long* hwinfo, unsigned type, PSO_CLIENT* client )
 {
 	int banned = 1;
 	unsigned ch, ch2;
@@ -8133,7 +8129,7 @@ int stfu ( unsigned gc_num )
 	return result;
 }
 
-int toggle_stfu ( unsigned gc_num, BANANA* client )
+int toggle_stfu ( unsigned gc_num, PSO_CLIENT* client )
 {
 	int ignored = 1;
 	unsigned ch, ch2;
@@ -8171,7 +8167,7 @@ int toggle_stfu ( unsigned gc_num, BANANA* client )
 	return ignored;
 }
 
-void Send60 (BANANA* client)
+void Send60 (PSO_CLIENT* client)
 {
 	unsigned short size, size_check_index;
 	unsigned short sizecheck = 0;
@@ -8186,7 +8182,7 @@ void Send60 (BANANA* client)
 	int ignored;
 	int ws_ok;
 	unsigned short ws_data, counter;
-	BANANA* lClient;
+	PSO_CLIENT* lClient;
 
 	size = *(unsigned short*) &client->decryptbuf[0x00];
 	sizecheck = client->decryptbuf[0x09];
@@ -9486,7 +9482,7 @@ unsigned long ExpandDropRate(unsigned char pc)
     return ((2 << (unsigned long) shift) * ((pc & 7) + 7));
 }
 
-void GenerateRandomAttributes (unsigned char sid, GAME_ITEM* i, LOBBY* l, BANANA* client)
+void GenerateRandomAttributes (unsigned char sid, GAME_ITEM* i, LOBBY* l, PSO_CLIENT* client)
 {
 	unsigned ch, num_percents, max_percent, meseta, do_area, r;
 	PTDATA* ptd;
@@ -9708,7 +9704,7 @@ void GenerateRandomAttributes (unsigned char sid, GAME_ITEM* i, LOBBY* l, BANANA
 	}
 }
 
-void GenerateCommonItem (int item_type, int is_enemy, unsigned char sid, GAME_ITEM* i, LOBBY* l, BANANA* client)
+void GenerateCommonItem (int item_type, int is_enemy, unsigned char sid, GAME_ITEM* i, LOBBY* l, PSO_CLIENT* client)
 {
 	unsigned ch, num_percents, item_set, meseta, do_area, r, eq_type;
 	unsigned short ch2;
@@ -10033,9 +10029,9 @@ void GenerateCommonItem (int item_type, int is_enemy, unsigned char sid, GAME_IT
 	i->item.itemid = l->itemID++;
 }
 
-void Send62 (BANANA* client)
+void Send62 (PSO_CLIENT* client)
 {
-	BANANA* lClient;
+	PSO_CLIENT* lClient;
 	unsigned bank_size, bank_use;
 	unsigned short size;
 	unsigned short sizecheck = 0;
@@ -11112,9 +11108,9 @@ void Send62 (BANANA* client)
 }
 
 
-void Send6D (BANANA* client)
+void Send6D (PSO_CLIENT* client)
 {
-	BANANA* lClient;
+	PSO_CLIENT* lClient;
 	unsigned short size;
 	unsigned short sizecheck = 0;
 	unsigned char t;
@@ -11221,7 +11217,7 @@ void Send6D (BANANA* client)
 }
 
 
-void Send01 (const char *text, BANANA* client)
+void Send01 (const char *text, PSO_CLIENT* client)
 {
 	unsigned short mesgOfs = 0x10;
 	unsigned ch;
@@ -11330,7 +11326,7 @@ void WriteGM(char *fmt, ...)
 
 char character_file[255];
 
-void Send06 (BANANA* client)
+void Send06 (PSO_CLIENT* client)
 {
 	FILE* fp;
 	unsigned short chatsize;
@@ -11342,7 +11338,7 @@ void Send06 (BANANA* client)
 	unsigned myCmdArgs, itemNum, connectNum, gc_num;
 	unsigned short npcID;
 	unsigned max_send;
-	BANANA* lClient;
+	PSO_CLIENT* lClient;
 	int i, z, commandLen, ignored, found_ban, writeData;
 	LOBBY* l;
 	INVENTORY_ITEM ii;
@@ -12216,7 +12212,7 @@ void Send06 (BANANA* client)
 	}
 }
 
-void CommandED(BANANA* client)
+void CommandED(PSO_CLIENT* client)
 {
 	switch (client->decryptbuf[0x03])
 	{
@@ -12255,7 +12251,7 @@ void CommandED(BANANA* client)
 	}
 }
 
-void Command40(BANANA* client, ORANGE* ship)
+void Command40(PSO_CLIENT* client, PSO_SERVER* ship)
 {
 	// Guild Card Search
 
@@ -12268,10 +12264,10 @@ void Command40(BANANA* client, ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x21);
 }
 
-void Command09(BANANA* client)
+void Command09(PSO_CLIENT* client)
 {
 	QUEST* q;
-	BANANA* c;
+	PSO_CLIENT* c;
 	LOBBY* l;
 	unsigned lobbyNum, Packet11_Length, ch;
 	char lb[10];
@@ -12464,7 +12460,7 @@ void Command09(BANANA* client)
 	}
 }
 
-void Command10(unsigned blockServer, BANANA* client)
+void Command10(unsigned blockServer, PSO_CLIENT* client)
 {
 	unsigned char select_type, selected;
 	unsigned full_select, ch, ch2, failed_to_join, lobbyNum, password_match, oldIndex;
@@ -13044,7 +13040,7 @@ void Command10(unsigned blockServer, BANANA* client)
 	}
 }
 
-void CommandD9 (BANANA* client)
+void CommandD9 (PSO_CLIENT* client)
 {
 	unsigned short *n;
 	unsigned short *g;
@@ -13074,7 +13070,7 @@ void CommandD9 (BANANA* client)
 
 void AddGuildCard (unsigned myGC, unsigned friendGC, unsigned char* friendName, 
 				   unsigned char* friendText, unsigned char friendSecID, unsigned char friendClass,
-				   ORANGE* ship)
+				   PSO_SERVER* ship)
 {
 	// Instruct the logon server to add the guild card
 
@@ -13089,7 +13085,7 @@ void AddGuildCard (unsigned myGC, unsigned friendGC, unsigned char* friendName,
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0xD4 );
 }
 
-void DeleteGuildCard (unsigned myGC, unsigned friendGC, ORANGE* ship)
+void DeleteGuildCard (unsigned myGC, unsigned friendGC, PSO_SERVER* ship)
 {
 	// Instruct the logon server to delete the guild card
 
@@ -13100,7 +13096,7 @@ void DeleteGuildCard (unsigned myGC, unsigned friendGC, ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0A );
 }
 
-void ModifyGuildCardComment (unsigned myGC, unsigned friendGC, unsigned short* n, ORANGE* ship)
+void ModifyGuildCardComment (unsigned myGC, unsigned friendGC, unsigned short* n, PSO_SERVER* ship)
 {
 	unsigned s = 1;
 	unsigned short* g;
@@ -13132,7 +13128,7 @@ void ModifyGuildCardComment (unsigned myGC, unsigned friendGC, unsigned short* n
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x4E );
 }
 
-void SortGuildCard (BANANA* client, ORANGE* ship)
+void SortGuildCard (PSO_CLIENT* client, PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x07;
 	ship->encryptbuf[0x01] = 0x03;
@@ -13143,7 +13139,7 @@ void SortGuildCard (BANANA* client, ORANGE* ship)
 }
 
 
-void CommandE8 (BANANA* client)
+void CommandE8 (PSO_CLIENT* client)
 {
 	unsigned gcn;
 
@@ -13154,7 +13150,7 @@ void CommandE8 (BANANA* client)
 		{
 			// Accepting sent guild card
 			LOBBY* l;
-			BANANA* lClient;
+			PSO_CLIENT* lClient;
 			unsigned ch, maxch;
 
 			if (!client->lobby)
@@ -13236,13 +13232,13 @@ void CommandE8 (BANANA* client)
 	}
 }
 
-void CommandD8 (BANANA* client)
+void CommandD8 (PSO_CLIENT* client)
 {
 	unsigned ch,maxch;
 	unsigned short D8Offset;
 	unsigned char totalClients = 0;
 	LOBBY* l;
-	BANANA* lClient;
+	PSO_CLIENT* lClient;
 
 	if (!client->lobby)
 		return;
@@ -13277,7 +13273,7 @@ void CommandD8 (BANANA* client)
 	encryptcopy (client, &PacketData[0], D8Offset);
 }
 
-void Command81 (BANANA* client, ORANGE* ship)
+void Command81 (PSO_CLIENT* client, PSO_SERVER* ship)
 {
 	unsigned short* n;
 
@@ -13299,7 +13295,7 @@ void Command81 (BANANA* client, ORANGE* ship)
 }
 
 
-void CreateTeam (unsigned short* teamname, unsigned guildcard, ORANGE* ship)
+void CreateTeam (unsigned short* teamname, unsigned guildcard, PSO_SERVER* ship)
 {
 	unsigned short *g;
 	unsigned n;
@@ -13325,7 +13321,7 @@ void CreateTeam (unsigned short* teamname, unsigned guildcard, ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x1E );
 }
 
-void UpdateTeamFlag (unsigned char* flag, unsigned teamid, ORANGE* ship)
+void UpdateTeamFlag (unsigned char* flag, unsigned teamid, PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x09;
 	ship->encryptbuf[0x01] = 0x01;
@@ -13334,7 +13330,7 @@ void UpdateTeamFlag (unsigned char* flag, unsigned teamid, ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x806 );
 }
 
-void DissolveTeam (unsigned teamid, ORANGE* ship)
+void DissolveTeam (unsigned teamid, PSO_SERVER* ship)
 {
 	ship->encryptbuf[0x00] = 0x09;
 	ship->encryptbuf[0x01] = 0x02;
@@ -13342,7 +13338,7 @@ void DissolveTeam (unsigned teamid, ORANGE* ship)
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x06 );
 }
 
-void RemoveTeamMember ( unsigned teamid, unsigned guildcard, ORANGE* ship )
+void RemoveTeamMember ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship )
 {
 	ship->encryptbuf[0x00] = 0x09;
 	ship->encryptbuf[0x01] = 0x03;
@@ -13351,7 +13347,7 @@ void RemoveTeamMember ( unsigned teamid, unsigned guildcard, ORANGE* ship )
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0A );
 }
 
-void TeamChat ( unsigned short* text, unsigned short chatsize, unsigned teamid, ORANGE* ship )
+void TeamChat ( unsigned short* text, unsigned short chatsize, unsigned teamid, PSO_SERVER* ship )
 {
 	unsigned size;
 
@@ -13366,7 +13362,7 @@ void TeamChat ( unsigned short* text, unsigned short chatsize, unsigned teamid, 
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], size );
 }
 
-void RequestTeamList ( unsigned teamid, unsigned guildcard, ORANGE* ship )
+void RequestTeamList ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship )
 {
 	ship->encryptbuf[0x00] = 0x09;
 	ship->encryptbuf[0x01] = 0x05;
@@ -13375,7 +13371,7 @@ void RequestTeamList ( unsigned teamid, unsigned guildcard, ORANGE* ship )
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0A );
 }
 
-void PromoteTeamMember ( unsigned teamid, unsigned guildcard, unsigned char newlevel, ORANGE* ship )
+void PromoteTeamMember ( unsigned teamid, unsigned guildcard, unsigned char newlevel, PSO_SERVER* ship )
 {
 	ship->encryptbuf[0x00] = 0x09;
 	ship->encryptbuf[0x01] = 0x06;
@@ -13385,7 +13381,7 @@ void PromoteTeamMember ( unsigned teamid, unsigned guildcard, unsigned char newl
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0B );
 }
 
-void AddTeamMember ( unsigned teamid, unsigned guildcard, ORANGE* ship )
+void AddTeamMember ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship )
 {
 	ship->encryptbuf[0x00] = 0x09;
 	ship->encryptbuf[0x01] = 0x07;
@@ -13395,7 +13391,7 @@ void AddTeamMember ( unsigned teamid, unsigned guildcard, ORANGE* ship )
 }
 
 
-void CommandEA (BANANA* client, ORANGE* ship)
+void CommandEA (PSO_CLIENT* client, PSO_SERVER* ship)
 {
 	unsigned connectNum;
 
@@ -13412,7 +13408,7 @@ void CommandEA (BANANA* client, ORANGE* ship)
 		case 0x03:
 			// Add a team member
 			{
-				BANANA* tClient;
+				PSO_CLIENT* tClient;
 				unsigned gcn, ch;
 
 				if ((client->character.teamID != 0) && (client->character.privilegeLevel >= 0x30))
@@ -13456,7 +13452,7 @@ void CommandEA (BANANA* client, ORANGE* ship)
 			if (client->character.teamID != 0)
 			{
 				unsigned gcn,ch;
-				BANANA* tClient;
+				PSO_CLIENT* tClient;
 
 				gcn = *(unsigned*) &client->decryptbuf[0x08];
 
@@ -13574,7 +13570,7 @@ void CommandEA (BANANA* client, ORANGE* ship)
 			if (client->character.teamID != 0)
 			{
 				unsigned gcn, ch;
-				BANANA* tClient;
+				PSO_CLIENT* tClient;
 
 				gcn = *(unsigned*) &client->decryptbuf[0x08];
 
@@ -13644,7 +13640,7 @@ void CommandEA (BANANA* client, ORANGE* ship)
 }
 
 
-void ShowArrows (BANANA* client, int to_all)
+void ShowArrows (PSO_CLIENT* client, int to_all)
 {
 	LOBBY *l;
 	unsigned ch, total_clients, Packet88Offset;
@@ -13681,7 +13677,7 @@ void ShowArrows (BANANA* client, int to_all)
 	}
 }
 
-void BlockProcessPacket (BANANA* client)
+void BlockProcessPacket (PSO_CLIENT* client)
 {
 	if (client->guildcard)
 	{
@@ -14230,7 +14226,7 @@ void BlockProcessPacket (BANANA* client)
 	}
 }
 
-void ShipProcessPacket (BANANA* client)
+void ShipProcessPacket (PSO_CLIENT* client)
 {
 	switch (client->decryptbuf[0x02])
 	{
@@ -15727,8 +15723,8 @@ int main()
 
 	printf ("OK!\n");
 
-	printf ("\nAllocating %u bytes of memory for connections... ", sizeof (BANANA) * serverMaxConnections );
-	connectionChunk = malloc ( sizeof (BANANA) * serverMaxConnections );
+	printf ("\nAllocating %u bytes of memory for connections... ", sizeof (PSO_CLIENT) * serverMaxConnections );
+	connectionChunk = malloc ( sizeof (PSO_CLIENT) * serverMaxConnections );
 	if (!connectionChunk )
 	{
 		printf ("Out of memory!\n");
@@ -15739,12 +15735,12 @@ int main()
 	connectionPtr = connectionChunk;
 	for (ch=0;ch<serverMaxConnections;ch++)
 	{
-		connections[ch] = (BANANA*) connectionPtr;
+		connections[ch] = (PSO_CLIENT*) connectionPtr;
 		connections[ch]->guildcard = 0;
 		connections[ch]->character_backup = NULL;
 		connections[ch]->mode = 0;
 		initialize_connection (connections[ch]);
-		connectionPtr += sizeof (BANANA);
+		connectionPtr += sizeof (PSO_CLIENT);
 	}
 
 	printf ("OK!\n\n");
@@ -16466,7 +16462,7 @@ void pso_crypt_encrypt_bb(PSO_CRYPT *pcry, unsigned char *data, unsigned
 	}
 }
 
-void encryptcopy (BANANA* client, const unsigned char* src, unsigned size)
+void encryptcopy (PSO_CLIENT* client, const unsigned char* src, unsigned size)
 {
 	unsigned char* dest;
 
@@ -16892,7 +16888,7 @@ void rc4 (unsigned char *buffer, unsigned len, struct rc4_key *key)
     key->x = x; key->y = y;
 }
 
-void compressShipPacket ( ORANGE* ship, unsigned char* src, unsigned long src_size )
+void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size )
 {
 	unsigned char* dest;
 	unsigned long result;
@@ -16922,7 +16918,7 @@ void compressShipPacket ( ORANGE* ship, unsigned char* src, unsigned long src_si
 	}
 }
 
-void decompressShipPacket ( ORANGE* ship, unsigned char* dest, unsigned char* src )
+void decompressShipPacket ( PSO_SERVER* ship, unsigned char* dest, unsigned char* src )
 {
 	unsigned src_size, dest_size;
 	unsigned char *srccpy;

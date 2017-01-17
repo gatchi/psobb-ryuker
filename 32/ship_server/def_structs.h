@@ -365,7 +365,7 @@ typedef struct st_banana {
 	void* lobby;
 	int announce;
 	int debugged;
-} BANANA;
+} PSO_CLIENT;
 
 
 /* Quest Details Structure */
@@ -433,7 +433,7 @@ typedef struct st_orange {
 	struct rc4_key cs_key;
 	struct rc4_key sc_key;
 	unsigned last_ping;
-} ORANGE;
+} PSO_SERVER;
 
 
 /* Ship List Structure (Assembled from Logon Packet) */
@@ -548,7 +548,7 @@ typedef struct st_lobby {
 	int in_use;
 	int redbox;
 	int slot_use[12];
-	BANANA* client[12];
+	PSO_CLIENT* client[12];
 	BATTLEPARAM* bptable;
 } LOBBY;
 
