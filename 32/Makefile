@@ -1,38 +1,83 @@
 # 32-bit version
 
 CFLAGS = -I./headers
+COMPILE = gcc $(CFLAGS) -c
 
 all: char_export account_add	
 	
-ship_server: ship_server.o prs.o
-	gcc -o ship_server ship_server.o prs.o mtwist.o
+ship_server: ship_server.o prs.o utility.o network.o team.o chat.o items.o character.o params.o account.o/
+	           mag.o data.o quest.o fileio.o crypt.o packets.o commands.o
+	gcc -o ship_server ship_server.o prs.o mtwist.o utility.o network.o team.o chat.o items.o character.o/
+	         mag.o data.o quest.o fileio.o crypt.o packets.o commands.o
 
 ship_server.o: ./ship_server/ship_server.c
-	gcc $(CFLAGS) ./ship_server/ship_server.c
+	$(COMPILE) ./ship_server/ship_server.c
 	
 prs.o: prs.c
-	gcc $(CFLAGS) prs.cpp
+	$(COMPILE) prs.cpp
 	
 mtwist.o: mtwist.c
-	gcc $(CFLAGS) mtwist.c
+	$(COMPILE) mtwist.c
+
+network.o: network.c
+	$(COMPILE) network.c
+
+team.o: team.c
+	$(COMPILE) team.c
+
+chat.o: chat.c
+	$(COMPILE) chat.c
+
+items.o: items.c
+	$(COMPILE) items.c
+
+character.o: character.c
+	$(COMPILE) character.c
+
+params.o: params.c
+	$(COMPILE) params.c
+
+account.o: account.c
+	$(COMPILE) account.c
+
+mag.o: mag.c
+	$(COMPILE) mag.c
+
+data.o: data.c
+	$(COMPILE) data.c
+
+quest.o: quest.c
+	$(COMPILE) quest.c
+
+fileio.o: fileio.c
+	$(COMPILE) fileio.c
+
+crypt.o: crypt.c
+	$(COMPILE) crypt.c
+
+packets.o: packets.c
+	$(COMPILE) packets.c
+
+commands.o: commands.c
+	$(COMPILE) commands.c
 	
 char_export: char_export.o utility.o md5.o
 	gcc -o char_export char_export.o utility.o md5.o -L./mysql/lib -llibmysql
 
 char_export.o: char_export.c
-	gcc $(CFLAGS) -c char_export.c
+	$(COMPILE) char_export.c
 
 account_add: account_add.o utility.o md5.o
 	gcc -o account_add account_add.o utility.o md5.o -L./mysql/lib -llibmysql
 
 account_add.o: account_add.c
-	gcc $(CFLAGS) -c account_add.c
+	$(COMPILE) account_add.c
 
 utility.o: utility.c
-	gcc $(CFLAGS) -c utility.c
+	$(COMPILE) utility.c
 
 md5.o: md5.c
-	gcc $(CFLAGS) -c md5.c
+	$(COMPILE) md5.c
 
 clean:
-	rm account_add *.o *.exe
+	rm *.o account_add.exe char_export.exe ship_server.exe
