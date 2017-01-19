@@ -1526,7 +1526,10 @@ void BlockProcessPacket (PSO_CLIENT* client)
 			if (client->announce)
 			{
 				if (client->announce == 1)
-					write_gm ("GM %u made an announcement: %s", client->guildcard, unicode_to_ascii ( &client->decryptbuf[0x60]));
+				{
+					unsigned char tempbuf[4000];
+					write_gm ("GM %u made an announcement: %s", client->guildcard, unicode_to_ascii ( (unsigned short*) &client->decryptbuf[0x60], tempbuf) );
+				}
 				BroadcastToAll ((unsigned short*) &client->decryptbuf[0x60], client);
 			}
 			else
@@ -1795,10 +1798,11 @@ void BlockProcessPacket (PSO_CLIENT* client)
 			// Client sending character data...
 			if ( client->guildcard )
 			{
+				unsigned char tempbuf[4000];
 				if ( (client->isgm) || (isLocalGM(client->guildcard)) )
-					write_gm ("GM %u (%s) has disconnected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4]) );
+					write_gm ("GM %u (%s) has disconnected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4], tempbuf) );
 				else
-					write_log ("User %u (%s) has disconnected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4]) );
+					write_log ("User %u (%s) has disconnected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4], tempbuf) );
 				client->todc = 1;
 			}
 			break;

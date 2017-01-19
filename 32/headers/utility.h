@@ -37,7 +37,7 @@ void wstrcpy ( unsigned short* dest, const unsigned short* src );
 */
 void wstrcpy_char ( char* dest, const char* src );
 
-char* unicode_to_ascii (unsigned short* ucs);
+unsigned char* unicode_to_ascii (unsigned short* ucs, unsigned char* buf);
 void write_log (char *fmt, ...);
 void write_gm (char *fmt, ...);
 long calc_checksum (void* data, unsigned long size);

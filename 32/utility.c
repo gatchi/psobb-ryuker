@@ -96,12 +96,11 @@ int init( char* config_data, char* mySQL_Host, char* mySQL_Username, char* mySQL
 	Because its converting two byte characters to one, it should take in a short array,
 	not a char array.  That way increments go two bytes at a time.
 */
-char* unicode_to_ascii (unsigned short* ucs)
+unsigned char* unicode_to_ascii (unsigned short* ucs, unsigned char* buf)
 {
 	char *s,c;
-	unsigned char as[4000];
 
-	s = as;
+	s = buf;
 	while (*ucs != '\0')
 	// same as saying
 	// for (int i=0; i<len(ucs); i++)
@@ -123,7 +122,7 @@ char* unicode_to_ascii (unsigned short* ucs)
 			*(s++) = '*';
 	}
 	*(s++) = 0x00;
-	return as;
+	return buf;
 }
 
 void write_log (char* log, char* fmt, ...)
