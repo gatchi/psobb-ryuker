@@ -1,6 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// For write_log
+#include <stdarg.h> 	// for va_list and such
+#include <time.h> 		// for time stuff
+#include <windows.h>	// ...
+
 #include "md5.h"
 #include "utility.h"
 
