@@ -30,7 +30,6 @@
 #include	"def_map.h" // Map file name definitions
 #include	"def_block.h" // Blocked packet definitions
 #include	"def_packets.h" // Pre-made packet definitions
-#include	"def_structs.h" // Various structure definitions
 #include	"def_tables.h" // Various pre-made table definitions
 #include	"network.h"
 #include	"team.h"

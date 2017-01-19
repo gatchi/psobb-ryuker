@@ -15,6 +15,8 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ************************************************************************/
 
+#include	"def_structs.h" // Various structure definitions
+
 #define reveal_window \
 	ShowWindow ( consoleHwnd, SW_NORMAL ); \
 	SetForegroundWindow ( consoleHwnd ); \
