@@ -89,6 +89,7 @@
 #include	"team.h"
 #include	"packet.h"
 #include	"commands.h"
+#include	"data.h"
 
 /* function defintions */
 
