@@ -27,6 +27,7 @@
 #include	"network.h"
 #include	"utility.h"
 #include	"fileio.h"
+#include	"mtwist.h"
 
 #include	"ship_server.h"
 
