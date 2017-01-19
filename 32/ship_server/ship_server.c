@@ -22,21 +22,13 @@
 #include	<time.h>
 #include	<math.h>
 
-#include	"ship_server.h"
-#include	"resource.h"
 #include	"pso_crypt.h"
 #include	"bbtable.h"
-#include	"localgms.h"
-#include	"def_map.h" // Map file name definitions
-#include	"def_block.h" // Blocked packet definitions
-#include	"def_packets.h" // Pre-made packet definitions
-#include	"def_tables.h" // Various pre-made table definitions
 #include	"network.h"
-#include	"team.h"
 #include	"utility.h"
 #include	"fileio.h"
-#include	"packet.h"
-#include	"commands.h"
+
+#include	"ship_server.h"
 
 const unsigned char Message03[] = { "Tethealla Ship v.144" };
 

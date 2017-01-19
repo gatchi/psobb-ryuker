@@ -15,8 +15,6 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ************************************************************************/
 
-#include	"def_structs.h" // Various structure definitions
-
 #define reveal_window \
 	ShowWindow ( consoleHwnd, SW_NORMAL ); \
 	SetForegroundWindow ( consoleHwnd ); \
@@ -80,6 +78,17 @@
 #define	NEWMAN_FLAG	32  // Bit 6
 #define	MALE_FLAG	64  // Bit 7
 #define	FEMALE_FLAG	128 // Bit 8
+
+#include	"resource.h"
+#include	"localgms.h"
+#include	"def_map.h" // Map file name definitions
+#include	"def_block.h" // Blocked packet definitions
+#include	"def_packets.h" // Pre-made packet definitions
+#include	"def_tables.h" // Various pre-made table definitions
+#include	"def_structs.h" // Various structure definitions
+#include	"team.h"
+#include	"packet.h"
+#include	"commands.h"
 
 /* function defintions */
 
