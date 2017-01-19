@@ -98,7 +98,7 @@
 #include	"team.h"
 #include	"utility.h"
 #include	"fileio.h"
-#include	"packets.h"
+#include	"packet.h"
 #include	"commands.h"
 
 const unsigned char Message03[] = { "Tethealla Ship v.144" };
@@ -1311,7 +1311,7 @@ int toggle_stfu ( unsigned gc_num, PSO_CLIENT* client )
 	return ignored;
 }
 
-unsigned char chatBuf[4000];
+
 unsigned char cmdBuf[4000];
 char* myCommand;
 char* myArgs[64];
@@ -1611,7 +1611,7 @@ void BlockProcessPacket (PSO_CLIENT* client)
 			if (client->announce)
 			{
 				if (client->announce == 1)
-					write_gm ("GM %u made an announcement: %s", client->guildcard, unicode_to_ascii ((unsigned short*) &client->decryptbuf[0x60]));
+					write_gm ("GM %u made an announcement: %s", client->guildcard, unicode_to_ascii ( &client->decryptbuf[0x60]));
 				BroadcastToAll ((unsigned short*) &client->decryptbuf[0x60], client);
 			}
 			else

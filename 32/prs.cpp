@@ -1,4 +1,5 @@
 #include <memory.h>
+#include <stdio.h>
 
 typedef unsigned long u32;
 typedef unsigned char u8;
@@ -170,9 +171,9 @@ u32 prs_compress(void* source,void* dest,u32 size)
 
     if (size > 2147483648) // keep within signed range
     {
-	printf ("prs_compress failure\n");
+		printf ("prs_compress failure\n");
     	memcpy (dest,source,size);
-	return size;
+		return size;
     }
     prs_init(&pc,source,dest);
     //printf("\n> compressing %08X bytes\n",size);

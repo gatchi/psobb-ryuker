@@ -1,20 +1,21 @@
-# 32-bit version
+# PSOBB Ryuker Server
+# Ship Server Makefile, 32-bit version
 
-CFLAGS = -I./headers
+CFLAGS = -I../headers
 COMPILE = gcc $(CFLAGS) -c
 
-all: char_export account_add	
+all: ship_server	
 	
-ship_server: ship_server.o prs.o utility.o network.o team.o chat.o items.o character.o params.o account.o/
-	           mag.o data.o quest.o fileio.o crypt.o packets.o commands.o
-	gcc -o ship_server ship_server.o prs.o mtwist.o utility.o network.o team.o chat.o items.o character.o/
-	         mag.o data.o quest.o fileio.o crypt.o packets.o commands.o
+ship_server: ship_server.o ../prs.o utility.o network.o team.o chat.o items.o character.o params.o account.o/
+	           mag.o data.o quest.o fileio.o crypt.o packet.o commands.o
+	gcc -o ship_server ship_server.o prs.o mtwist.o ../utility.o network.o team.o chat.o items.o character.o/
+	         mag.o data.o quest.o fileio.o crypt.o packet.o commands.o
 
-ship_server.o: ./ship_server/ship_server.c
-	$(COMPILE) ./ship_server/ship_server.c
+ship_server.o: ship_server.c
+	$(COMPILE) ship_server.c
 	
-prs.o: prs.c
-	$(COMPILE) prs.cpp
+prs.o: ../prs.cpp
+	$(COMPILE) ../prs.cpp
 	
 mtwist.o: mtwist.c
 	$(COMPILE) mtwist.c
@@ -55,14 +56,14 @@ fileio.o: fileio.c
 crypt.o: crypt.c
 	$(COMPILE) crypt.c
 
-packets.o: packets.c
-	$(COMPILE) packets.c
+packets.o: packet.c
+	$(COMPILE) packet.c
 
 commands.o: commands.c
 	$(COMPILE) commands.c
 
-utility.o: utility.c
-	$(COMPILE) utility.c
+utility.o: ../utility.c
+	$(COMPILE) ../utility.c
 
 md5.o: md5.c
 	$(COMPILE) md5.c

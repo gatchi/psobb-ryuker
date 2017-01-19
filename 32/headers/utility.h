@@ -35,7 +35,7 @@ void wstrcpy ( unsigned short* dest, const unsigned short* src );
 	
 	Something to note: chars are smaller than (and usually half the size of) shorts.
 */
-void wstrcpy_char ( char* dest, const char* src 
+void wstrcpy_char ( char* dest, const char* src );
 
 char* unicode_to_ascii (unsigned short* ucs);
 void write_log (char *fmt, ...);

@@ -83,7 +83,7 @@ void load_language_file()
 	}
 }
 
-void load_config_file()
+void load_ship_config_file()
 {
 	int config_index = 0;
 	char config_data[255];

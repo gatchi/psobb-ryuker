@@ -4,6 +4,11 @@
 #include "md5.h"
 #include "utility.h"
 
+/*
+	Computes the message digest for string inString.
+	Prints out message digest, a space, the string (in quotes) and a
+	carriage return.
+*/
 void MDString (char * inString, char * outString)
 {
 	unsigned char c;
@@ -82,42 +87,62 @@ int init( char* config_data, char* mySQL_Host, char* mySQL_Username, char* mySQL
 	return 0;
 }
 
+/*
+	Since Unicode is a superset of ASCII this is more importantly a translator between
+	two-byte characters (Unicode) and one-byte characters (ASCII).
+	It also serves as an alphanum enforcer for the fields passed in.
+	Do not use this if you need a strict converter.
+	
+	Because its converting two byte characters to one, it should take in a short array,
+	not a char array.  That way increments go two bytes at a time.
+*/
 char* unicode_to_ascii (unsigned short* ucs)
 {
 	char *s,c;
+	unsigned char as[4000];
 
-	s = (char*) &chatBuf[0];
-	while (*ucs != 0x0000)
+	s = as;
+	while (*ucs != '\0')
+	// same as saying
+	// for (int i=0; i<len(ucs); i++)
+	// {
+	//    c = ucs[i++] & 0xFF
+	//    ...
+	// }
+	// only "len" isnt a standard function, which is why its implemented this way (probs)
 	{
+		// The following line probably puts the least significant byte of ucs into c.
+		// Theoretically, casting ucs to unsigned char should have the same result, ie:
+		// c = (unsigned char) *(ucs++);
 		c = *(ucs++) & 0xFF;
+		// The following construct ensures the output is alphanum only
 		if ((c >= 0x20) && (c <= 0x80))
 			*(s++) = c;
 		else
-			*(s++) = 0x20;
+			// Lets replace bad characters with stars so they at least get visible placeholders
+			*(s++) = '*';
 	}
 	*(s++) = 0x00;
-	return (char*) &chatBuf[0];
+	return as;
 }
 
-void write_log (char *fmt, ...)
+void write_log (char* log, char* fmt, ...)
 {
-#define MAX_GM_MESG_LEN 4096
-
 	va_list args;
-	char text[ MAX_GM_MESG_LEN ];
+	char text[ 4096 ];
 	SYSTEMTIME rawtime;
 
-	FILE *fp;
+	FILE* fp;
 
 	GetLocalTime (&rawtime);
 	va_start (args, fmt);
-	strcpy (text + vsprintf( text,fmt,args), "\r\n"); 
+	strcpy (text + vsprintf( text, fmt, args ), "\r\n"); 
 	va_end (args);
 
-	fp = fopen ( "ship.log", "a");
+	fp = fopen ( log, "a");
 	if (!fp)
 	{
-		printf ("Unable to log to ship.log\n");
+		printf ("Unable to log to %s\n", log);
 	}
 
 	fprintf (fp, "[%02u-%02u-%u, %02u:%02u] %s", rawtime.wMonth, rawtime.wDay, rawtime.wYear, 
@@ -130,10 +155,8 @@ void write_log (char *fmt, ...)
 
 void write_gm (char *fmt, ...)
 {
-#define MAX_GM_MESG_LEN 4096
-
 	va_list args;
-	char text[ MAX_GM_MESG_LEN ];
+	char text[ 4096 ];
 	SYSTEMTIME rawtime;
 
 	FILE *fp;
@@ -175,7 +198,6 @@ void debug (char *fmt, ...)
 
 	fprintf( stderr, "%s", text);
 }
-
 
 long calc_checksum (void* data, unsigned long size)
 {

@@ -1,3 +1,3 @@
-load_mask_file ();
-load_language_file ();
-load_config_file ();
+void load_mask_file ();
+void load_language_file ();
+void load_config_file ();

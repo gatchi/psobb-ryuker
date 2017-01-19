@@ -1,4 +1,4 @@
-#define NO_ALIGN __declspec(align(1))
+#define NO_ALIGN
 
 typedef struct NO_ALIGN st_ptdata
 {
@@ -296,7 +296,7 @@ typedef struct NO_ALIGN st_chardata {
 
 /* Connected Client Structure */
 
-typedef struct st_banana {
+typedef struct st_pso_client {
 	int plySockfd;
 	int block;
 	unsigned char rcvbuf [TCP_BUFFER_SIZE];
