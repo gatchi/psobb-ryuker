@@ -414,7 +414,7 @@ struct rc4_key {
 
 /* Connected Logon Server Structure */
 
-typedef struct st_orange {
+typedef struct st_pso_server {
 	int sockfd;
 	struct in_addr _ip;
 	unsigned char rcvbuf [TCP_BUFFER_SIZE];
