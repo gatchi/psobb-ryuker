@@ -1,3 +1,9 @@
+#include <string.h>
+
+#include "pso_crypt.h"
+#include "def_structs.h"
+#include "crypt.h"
+
 void CreateTeam (unsigned short* teamname, unsigned guildcard, PSO_SERVER* ship)
 {
 	unsigned short *g;
@@ -65,7 +71,7 @@ void PromoteTeamMember ( unsigned teamid, unsigned guildcard, unsigned char newl
 	ship->encryptbuf[0x01] = 0x06;
 	*(unsigned*) &ship->encryptbuf[0x02] = teamid;
 	*(unsigned*) &ship->encryptbuf[0x06] = guildcard;
-	(unsigned char) ship->encryptbuf[0x0A] = newlevel;
+	ship->encryptbuf[0x0A] = newlevel;
 	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0B );
 }
 

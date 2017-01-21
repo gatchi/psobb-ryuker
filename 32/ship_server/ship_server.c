@@ -21,8 +21,6 @@
 #include	<time.h>
 #include	<math.h>
 
-#define TCP_BUFFER_SIZE 64000
-
 #include	"pso_crypt.h"
 #include	"def_structs.h"
 #include	"bbtable.h"
@@ -33,6 +31,8 @@
 #include	"params.h"
 #include	"commands.h"
 #include	"items.h"
+#include	"fileio.h"
+#include	"packet.h"
 
 #include	"ship_server.h"
 
