@@ -1,68 +1,4 @@
 /*
-	The ol' PSO packets.
-	Generates text from them and then puts them in a buffer.
-*/
-void packet_to_text ( unsigned char* buf, int len )
-{
-	int c, c2, c3, c4;
-
-	c = c2 = c3 = c4 = 0;
-
-	for (c=0;c<len;c++)
-	{
-		if (c3==16)
-		{
-			for (;c4<c;c4++)
-				if (buf[c4] >= 0x20) 
-					dp[c2++] = buf[c4];
-				else
-					dp[c2++] = 0x2E;
-			c3 = 0;
-			sprintf (&dp[c2++], "\n" );
-		}
-
-		if ((c == 0) || !(c % 16))
-		{
-			sprintf (&dp[c2], "(%04X) ", c);
-			c2 += 7;
-		}
-
-		sprintf (&dp[c2], "%02X ", buf[c]);
-		c2 += 3;
-		c3++;
-	}
-
-	if ( len % 16 )
-	{
-		c3 = len;
-		while (c3 % 16)
-		{
-			sprintf (&dp[c2], "   ");
-			c2 += 3;
-			c3++;
-		}
-	}
-
-	for (;c4<c;c4++)
-		if (buf[c4] >= 0x20) 
-			dp[c2++] = buf[c4];
-		else
-			dp[c2++] = 0x2E;
-
-	dp[c2] = 0;
-}
-
-/*
-	Prints the packet to terminal but not without
-	generating text from the packet first.
-*/
-void display_packet ( unsigned char* buf, int len )
-{
-	packet_to_text ( buf, len );
-	printf ("%s\n\n", &dp[0]);
-}
-
-/*
 	Not sure what IPData is, if its just an IP address or something  more.
 	Gets it from ship.ini
 */
@@ -89,7 +25,7 @@ void convertIPString (char* IPData, unsigned IPLen, int fromConfig, unsigned cha
 						printf ("ship.ini is corrupted. (Failed to read IP information from file!)\n"); else
 						printf ("Failed to determine IP address.\n");
 					printf ("Press [ENTER] to quit...");
-					gets(&dp[0]);
+					gets(buff);
 					exit (1);
 				}
 			}
@@ -102,7 +38,7 @@ void convertIPString (char* IPData, unsigned IPLen, int fromConfig, unsigned cha
 						printf ("ship.ini is corrupted. (Failed to read IP information from file!)\n"); else
 						printf ("Failed to determine IP address.\n");
 					printf ("Press [ENTER] to quit...");
-					gets(&dp[0]);
+					gets(buff);
 					exit (1);
 				}
 				break;
@@ -162,7 +98,7 @@ void tcp_listen (int sockfd)
 	{
 		debug_perror ("Could not listen for connection");
 		debug_perror ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets(buff);
 		exit(1);
 	}
 }
@@ -222,7 +158,7 @@ int tcp_sock_open(struct in_addr ip, int port)
 	if( fd < 0 ){
 		debug_perror ("Could not create socket");
 		debug_perror ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets(buff);
 		exit(1);
 	} 
 
@@ -238,7 +174,7 @@ int tcp_sock_open(struct in_addr ip, int port)
 	if (bind(fd, (struct sockaddr *)&sa, sizeof(struct sockaddr)) < 0){
 		debug_perror("Could not bind to port");
 		debug_perror("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets(buff);
 		exit(1);
 	}
 

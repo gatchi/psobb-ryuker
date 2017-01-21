@@ -1,5 +1,29 @@
 #include "stdafx.h"
 
+#define TCP_BUFFER_SIZE 64000
+
+/*
+	This is almost like a debug function, really.
+	
+	Takes a string of unsigned chars and formats them all pretty.
+	
+	The format:
+	Every sixteen nums (chars) it makes a line.
+	At the left is the row annotation (shown as a hex num in the format XXXX),
+	on the right is the nums converted to text (unicode i think... may depend on the OS/terminal),
+	and "illegal characterrs" (chars less than 0x20 on ASCII/Unicode) are shown as periods.
+	The right margin has a width of 16 characters.
+	
+	Looks to have been used originally to view the contents of PSO packets.
+*/
+void eight_bit_hex_converter ( unsigned char* array, int len );
+
+/*
+	Prints the packet to terminal but not without
+	generating text from the packet first.
+*/
+void display_hex ( unsigned char* arr, int len );
+
 // Not sure yet, something to do with hashing passwords i think */
 void MDString( char* inString, char* outString );
 

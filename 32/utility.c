@@ -10,6 +10,88 @@
 #include "md5.h"
 #include "utility.h"
 
+unsigned char buff[ TCP_BUFFER_SIZE*4 ];
+
+/*
+	This is almost like a debug function, really.
+	
+	Takes a string of unsigned chars and formats them all pretty.
+	
+	The format:
+	Every sixteen nums (chars) it makes a line.
+	At the left is the row annotation (shown as a hex num in the format XXXX),
+	on the right is the nums converted to text (unicode i think... may depend on the OS/terminal),
+	and "illegal characterrs" (chars less than 0x20 on ASCII/Unicode) are shown as periods.
+	The right margin has a width of 16 characters.
+	
+	Looks to have been used originally to view the contents of PSO packets.
+*/
+void eight_bit_hex_converter ( unsigned char* array, int len )
+{
+	int a = 0;	// array placeholder
+	int b = 0;	// buffer placeholder
+	int t = 0;	// text margin placeholder
+
+	for (a=0; a<len; a++)
+	{
+		// When at the end of a line of hexes
+		if ( (a > 0) && !(a % 16) )
+		{
+			for (; t<a; t++)
+				// Put readable characters into the buffer;
+				if (array[t] >= ' ')
+					buff[b++] = array[t];
+				// otherwise replace them with periods
+				else
+					buff[b++] = '.';
+			sprintf (&buff[b++], "\n" );
+		}
+
+		// Before a line of hexes
+		if ((a == 0) || !(a % 16))
+		{
+			sprintf (&buff[b], "(%04X) ", a);	// The counter value cause index basically
+			b += 7; // Text added is sevenn chars long, so catch up this counter by 7
+		}
+
+		// Heres where the numbers actually makes it into the buffer
+		sprintf (&buff[b], "%02X ", array[a]);
+		b += 3;	// Increment three because three chars are inserted
+	}
+
+	// Add padding to last line if array isnt multiple of 16
+	if ( len % 16 )
+	{
+		int padc = 0;
+		padc = len;
+		while (padc % 16)
+		{
+			sprintf (&buff[b], "   ");
+			b += 3;
+			padc++;
+		}
+	}
+
+	// Last line of margin text
+	for (; t<a; t++)
+		if (array[t] >= ' ') 
+			buff[b++] = array[t];
+		else
+			buff[b++] = '.';
+
+	buff[b] = 0;
+}
+
+/*
+	Prints the packet to terminal but not without
+	generating text from the packet first.
+*/
+void display_hex ( unsigned char* arr, int len )
+{
+	eight_bit_hex_converter ( arr, len );
+	printf ( "%s\n\n", arr );
+}
+
 /*
 	Computes the message digest for string inString.
 	Prints out message digest, a space, the string (in quotes) and a

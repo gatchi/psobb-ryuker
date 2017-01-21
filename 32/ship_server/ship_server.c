@@ -15,7 +15,6 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ************************************************************************/
 
-
 #include	<windows.h>
 #include	<stdio.h>
 #include	<string.h>
@@ -136,7 +135,7 @@ fd_set ReadFDs, WriteFDs, ExceptFDs;
 // Is this here just like.... miscellaneous vars....
 
 saveLobby savedlobbies[MAX_SAVED_LOBBIES];
-unsigned char dp[TCP_BUFFER_SIZE*4];
+unsigned char dp[TCP_BUFFER_SIZE*4];		// what is this?????
 unsigned ship_ignore_list[300] = {0};
 unsigned ship_ignore_count = 0;
 unsigned ship_gcsend_list[MAX_GCSEND*3] = {0};
@@ -2012,7 +2011,7 @@ void LoadCSV(const char* filename)
 	{
 		printf ("The parameter file %s appears to be missing.\n", filename);
 		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets (dp);	// why are you capturing the ENTER.... into dp..... probably no reason, just need buffer
 		exit (1);
 	}
 
@@ -2056,7 +2055,7 @@ void LoadCSV(const char* filename)
 		{
 			printf ("CSV file has too many entries.\n");
 			printf ("Press [ENTER] to quit...");
-			gets(&dp[0]);
+			gets (dp);	// here it is again... starting to think dp is a throwaway buffer
 			exit (1);
 		}
 	}
@@ -2135,12 +2134,12 @@ int main()
 	consoleHwnd = GetConsoleWindow();
 	hinst = GetModuleHandle(NULL);
 
-	dp[0] = 0;
+	dp[0] = 0;	// clears dp, so the following can be put into it
 
-	strcat (&dp[0], "Tethealla Ship Server version ");
-	strcat (&dp[0], SERVER_VERSION );
-	strcat (&dp[0], " coded by Sodaboy");
-	SetConsoleTitle (&dp[0]);
+	strcat (dp, "Ryuker Ship Server version ");
+	strcat (dp, SERVER_VERSION );
+	strcat (dp, " coded by gatchipatchi");
+	SetConsoleTitle (dp);	// after this, dp goes back to being a general buffer
 
 	printf ("\nTethealla Ship Server version %s  Copyright (C) 2008  Terry Chatman Jr.\n", SERVER_VERSION);
 	printf ("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
@@ -2165,7 +2164,7 @@ int main()
 	{
 		printf ("Could not create 60packets.txt");
 		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets (dp);	// see, whaddaye say
 		exit(1);
 	}
 #endif
@@ -2186,7 +2185,7 @@ int main()
 	{
 		printf ("Could not locate ship_key.bin!\n");
 		printf ("Hit [ENTER] to quit...");
-		gets (&dp[0]);
+		gets (dp);
 		exit (1);
 	}
 
@@ -2254,7 +2253,7 @@ int main()
 	{
 		printf ("Can't proceed without ItemPT.gsl\n");
 		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets (dp);
 		exit (1);
 	}
 	fseek (fp, 0x3000, SEEK_SET);
@@ -2663,7 +2662,7 @@ int main()
 	{
 		printf ("Can't proceed without PlyLevelTbl.bin!\n");
 		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets (dp);
 		exit (1);
 	}
 	fread ( &startingData, 1, 12*14, fp );
@@ -2708,7 +2707,7 @@ int main()
 	{
 		printf ("Can't proceed without shop.dat!\n");
 		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets (dp);
 		exit (1);
 	}
 
@@ -2716,7 +2715,7 @@ int main()
 	{
 		printf ("Failed to read shop data...\n");
 		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
+		gets (dp);
 		exit (1);
 	}
 
