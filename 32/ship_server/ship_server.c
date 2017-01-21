@@ -21,12 +21,18 @@
 #include	<time.h>
 #include	<math.h>
 
+#define TCP_BUFFER_SIZE 64000
+
 #include	"pso_crypt.h"
+#include	"def_structs.h"
 #include	"bbtable.h"
 #include	"network.h"
 #include	"utility.h"
 #include	"fileio.h"
 #include	"mtwist.h"
+#include	"params.h"
+#include	"commands.h"
+#include	"items.h"
 
 #include	"ship_server.h"
 
@@ -1142,7 +1148,7 @@ int ban ( unsigned gc_num, unsigned* ipaddr, long long* hwinfo, unsigned type, P
 				fclose (fp);
 			}
 			else
-				write_log ("Could not open bandata.dat for writing!!");
+				write_log ("ship.log", "Could not open bandata.dat for writing!!");
 		}
 		else
 		{
@@ -1166,7 +1172,7 @@ int ban ( unsigned gc_num, unsigned* ipaddr, long long* hwinfo, unsigned type, P
 			fclose (fp);
 		}
 		else
-			write_log ("Could not open bandata.dat for writing!!");
+			write_log ("ship.log", "Could not open bandata.dat for writing!!");
 	}
 	return banned;
 }
@@ -1802,7 +1808,7 @@ void BlockProcessPacket (PSO_CLIENT* client)
 				if ( (client->isgm) || (isLocalGM(client->guildcard)) )
 					write_gm ("GM %u (%s) has disconnected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4], tempbuf) );
 				else
-					write_log ("User %u (%s) has disconnected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4], tempbuf) );
+					write_log ("ship.log", "User %u (%s) has disconnected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4], tempbuf) );
 				client->todc = 1;
 			}
 			break;

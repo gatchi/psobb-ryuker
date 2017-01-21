@@ -1,4 +1,8 @@
 #define NO_ALIGN
+#define MAX_SENDCHECK 0x0B
+#define PACKET_BUFFER_SIZE ( TCP_BUFFER_SIZE * 16 )
+#define MAX_SAVED_ITEMS 3000
+#define SHIP_COMPILED_MAX_GAMES 75
 
 typedef struct NO_ALIGN st_ptdata
 {

@@ -35,22 +35,17 @@
 
 #define SERVER_VERSION "0.144"
 #define USEADDR_ANY
-#define TCP_BUFFER_SIZE 64000
-#define PACKET_BUFFER_SIZE ( TCP_BUFFER_SIZE * 16 )
 //#define LOG_60
 #define SHIP_COMPILED_MAX_CONNECTIONS 900
-#define SHIP_COMPILED_MAX_GAMES 75
 #define LOGIN_RECONNECT_SECONDS 15
 #define MAX_SIMULTANEOUS_CONNECTIONS 6
 #define MAX_SAVED_LOBBIES 20
-#define MAX_SAVED_ITEMS 3000
 #define MAX_GCSEND 2000
 #define ALL_ARE_GM 0
 #define PRS_BUFFER 262144
 
 #define SEND_PACKET_03 0x00
 #define RECEIVE_PACKET_93 0x0A
-#define MAX_SENDCHECK 0x0B
 
 // Our Character Classes
 
@@ -85,11 +80,12 @@
 #include	"def_block.h" // Blocked packet definitions
 #include	"def_packets.h" // Pre-made packet definitions
 #include	"def_tables.h" // Various pre-made table definitions
-#include	"def_structs.h" // Various structure definitions
 #include	"team.h"
 #include	"packet.h"
 #include	"commands.h"
 #include	"data.h"
+#include	"fileio.h"
+#include	"crypt.h"
 
 /* function defintions */
 

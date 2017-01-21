@@ -4,7 +4,7 @@
 CFLAGS = -I../headers
 COMPILE = gcc $(CFLAGS) -c
 
-all: ship_server	
+all: ship_server
 	
 ship_server: ship_server.o ../prs.o ../utility.o network.o team.o chat.o items.o character.o params.o account.o/
 	           mag.o data.o quest.o fileio.o crypt.o packet.o commands.o mtwist.o
