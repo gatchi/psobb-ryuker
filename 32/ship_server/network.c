@@ -1,3 +1,9 @@
+#include "stdafx.h"
+
+#include "utility.h"
+
+unsigned char buff[1000];
+
 /*
 	Not sure what IPData is, if its just an IP address or something  more.
 	Gets it from ship.ini
