@@ -65,3 +65,4 @@ void write_gm (char *fmt, ...);
 long calc_checksum (void* data, unsigned long size);
 void debug_perror( char * msg );
 void debug (char *fmt, ...);
+long CalculateChecksum(void* data,unsigned long size);

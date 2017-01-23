@@ -243,6 +243,8 @@ typedef struct st_mapbox {
 
 /* Function Prototypes */
 void load_battle_param (BATTLEPARAM* dest, const char* filename, unsigned num_records, long expected_checksum);
-void load_armor_param ();
-void load_weapon_param ();
-void load_tech_param ();
+void load_armor_param (unsigned char* armor_dfpvar_table, unsigned char* armor_evpvar_table, unsigned char* armor_equip_table, unsigned char* armor_level_table, unsigned char* barrier_dfpvar_table, unsigned char* barrier_evpvar_table, unsigned char* barrier_equip_table, unsigned char* barrier_level_table, unsigned char* stackable_table);
+void load_weapon_param (unsigned char** weapon_equip_table, unsigned char** grind_table, unsigned char** special_table, unsigned char** weapon_atpmax_table);
+void load_tech_param (char** max_tech_level);
+void LoadCSV(const char* filename);
+void FreeCSV();
