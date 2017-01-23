@@ -1,5 +1,3 @@
-#include "stdafx.h"
-
 #define TCP_BUFFER_SIZE 64000
 
 /*

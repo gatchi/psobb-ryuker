@@ -1,3 +1,5 @@
+// Pre-made packet definitions
+
 /* Ship Packets */
 
 unsigned char ShipPacket00[] = {

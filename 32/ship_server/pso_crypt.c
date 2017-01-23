@@ -1,68 +1,5 @@
 /* PSO encryption and compression functions. */
 
-void start_encryption (PSO_CLIENT* connect)
-{
-	unsigned c, c3, c4, connectNum;
-	PSO_CLIENT *workConnect, *c5;
-
-	// Limit the number of connections from an IP address to MAX_SIMULTANEOUS_CONNECTIONS.
-
-	c3 = 0;
-
-	for (c=0;c<serverNumConnections;c++)
-	{
-		connectNum = serverConnectionList[c];
-		workConnect = connections[connectNum];
-		//debug ("%s comparing to %s", (char*) &workConnect->IP_Address[0], (char*) &connect->IP_Address[0]);
-		if ((!strcmp(&workConnect->IP_Address[0], &connect->IP_Address[0])) &&
-			(workConnect->plySockfd >= 0))
-			c3++;
-	}
-
-	//debug ("Matching count: %u", c3);
-
-	if (c3 > MAX_SIMULTANEOUS_CONNECTIONS)
-	{
-		// More than MAX_SIMULTANEOUS_CONNECTIONS connections from a certain IP address...
-		// Delete oldest connection to server.
-		c4 = 0xFFFFFFFF;
-		c5 = NULL;
-		for (c=0;c<serverNumConnections;c++)
-		{
-			connectNum = serverConnectionList[c];
-			workConnect = connections[connectNum];
-			if ((!strcmp(&workConnect->IP_Address[0], &connect->IP_Address[0])) &&
-				(workConnect->plySockfd >= 0))
-			{
-				if (workConnect->connected < c4)
-				{
-					c4 = workConnect->connected;
-					c5 = workConnect;
-				}
-			}
-		}
-		if (c5)
-		{
-			workConnect = c5;
-			initialize_connection (workConnect);
-		}
-	}
-
-	memcpy (&connect->sndbuf[0], &Packet03[0], sizeof (Packet03));
-	for (c=0;c<0x30;c++)
-	{
-		connect->sndbuf[0x68+c] = (unsigned char) mt_lrand() % 255;
-		connect->sndbuf[0x98+c] = (unsigned char) mt_lrand() % 255;
-	}
-	connect->snddata += sizeof (Packet03);
-	cipher_ptr = &connect->server_cipher;
-	pso_crypt_table_init_bb (cipher_ptr, &connect->sndbuf[0x68]);
-	cipher_ptr = &connect->client_cipher;
-	pso_crypt_table_init_bb (cipher_ptr, &connect->sndbuf[0x98]);
-	connect->crypt_on = 1;
-	connect->sendCheck[SEND_PACKET_03] = 1;
-	connect->connected = connect->response = connect->savetime = (unsigned) servertime;
-}
 
 /* Blue Burst encryption routines */
 
@@ -140,27 +77,6 @@ void pso_crypt_encrypt_bb (PSO_CRYPT *pcry, unsigned char *data, unsigned int le
 		*(unsigned long *) &data[edx] = ebp;
 		*(unsigned long *) &data[edx+4] = ebx;
 		edx = edx+8;
-	}
-}
-
-void encryptcopy (PSO_CLIENT* client, const unsigned char* src, unsigned int size)
-{
-	unsigned char* dest;
-
-	// Bad pointer check...
-	if ( ((unsigned) client < (unsigned)connections[0]) || 
-		 ((unsigned) client > (unsigned)connections[serverMaxConnections-1]) )
-		return;
-	if (TCP_BUFFER_SIZE - client->snddata < ( (int) size + 7 ) )
-		client->todc = 1;
-	else
-	{
-		dest = &client->sndbuf[client->snddata];
-		memcpy (dest,src,size);
-		while (size % 8)
-			dest[size++] = 0x00;
-		client->snddata += (int) size;
-		pso_crypt_encrypt_bb(cipher_ptr,dest,size);
 	}
 }
 
@@ -567,63 +483,3 @@ void rc4 (unsigned char *buffer, unsigned int len, struct rc4_key *key)
     key->x = x; key->y = y;
 }
 
-void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size )
-{
-	unsigned char* dest;
-	unsigned long result;
-
-	if (ship->sockfd >= 0)
-	{
-		if (PACKET_BUFFER_SIZE - ship->snddata < (int) ( src_size + 100 ) )
-			initialize_logon();
-		else
-		{
-			dest = &ship->sndbuf[ship->snddata];
-			// Store the original packet size before RLE compression at offset 0x04 of the new packet.
-			dest += 4;
-			*(unsigned *) dest = src_size;
-			// Compress packet using RLE, storing at offset 0x08 of new packet.
-			//
-			// result = size of RLE compressed data + a DWORD for the original packet size.
-			result = RleEncode (src, dest+4, src_size) + 4;
-			// Encrypt with RC4
-			rc4 (dest, result, &ship->sc_key);
-			// Increase result by the size of a DWORD for the final ship packet size.
-			result += 4;
-			// Copy it to the front of the packet.
-			*(unsigned *) &ship->sndbuf[ship->snddata] = result;
-			ship->snddata += (int) result;
-		}
-	}
-}
-
-void decompressShipPacket ( PSO_SERVER* ship, unsigned char* dest, unsigned char* src )
-{
-	unsigned src_size, dest_size;
-	unsigned char *srccpy;
-
-	if (ship->crypt_on)
-	{
-		src_size = *(unsigned *) src;
-		src_size -= 8;
-		src += 4;
-		srccpy = src;
-		// Decrypt RC4
-		rc4 (src, src_size+4, &ship->cs_key);
-		// The first four bytes of the src should now contain the expected uncompressed data size.
-		dest_size = *(unsigned *) srccpy;
-		// Increase expected size by 4 before inserting into the destination buffer.  (To take account for the packet
-		// size DWORD...)
-		dest_size += 4;
-		*(unsigned *) dest = dest_size;
-		// Decompress the data...
-		RleDecode (srccpy+4, dest+4, src_size);
-	}
-	else
-	{
-		src_size = *(unsigned *) src;
-		memcpy (dest + 4, src + 4, src_size);
-		src_size += 4;
-		*(unsigned *) dest = src_size;
-	}
-}

@@ -1,3 +1,5 @@
+#define TCP_BUFFER_SIZE 4096
+
 /*
 	The ol' PSO packets.
 	Generates text from them and then puts them in a buffer.

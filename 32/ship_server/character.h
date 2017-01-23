@@ -1,1 +1,1 @@
-void AddExp (unsigned int XP, PSO_CLIENT* client);
+

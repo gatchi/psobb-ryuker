@@ -1,3 +1,5 @@
+// Various pre-made table definitions
+
 // For remapping Episode IV monsters to Episode I counterparts...
 
 unsigned ep2_rtremap[] =

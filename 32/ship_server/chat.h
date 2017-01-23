@@ -1,1 +1,0 @@
-void TeamChat ( unsigned short* text, unsigned short chatsize, unsigned teamid, PSO_SERVER* ship );

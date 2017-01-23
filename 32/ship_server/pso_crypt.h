@@ -15,6 +15,18 @@ typedef struct pso_crypt {
 	void (*mangle)(struct pso_crypt *);
 } PSO_CRYPT;
 
+
+/* a RC4 expanded key session */
+const unsigned char RC4publicKey[32] = {
+	103, 196, 247, 176, 71, 167, 89, 233, 200, 100, 044, 209, 190, 231, 83, 42,
+	6, 95, 151, 28, 140, 243, 130, 61, 107, 234, 243, 172, 77, 24, 229, 156
+};
+
+struct rc4_key {
+    unsigned char state[256];
+    unsigned x, y;
+};
+
 /* for DC */
 void pso_crypt_table_init_dc(PSO_CRYPT *pcry, const unsigned char *salt);
 
