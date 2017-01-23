@@ -1,3 +1,9 @@
+#include <ctype.h>
+#include "quest.h"
+#include "prs.cpp"
+
+char dp[1];
+
 // "Quest flag"?
 int qflag (unsigned char* flag_data, unsigned int flag, unsigned int difficulty)
 {
@@ -20,7 +26,7 @@ int qflag_ep1solo (unsigned char* flag_data, unsigned int difficulty)
 	return 1;
 }
 
-void load_quests (const char* filename, unsigned int category)
+void load_quests (const char* filename, unsigned int category, QUEST_MENU* quest_menus, unsigned int numLanguages, QUEST* quests, unsigned int numQuests, unsigned int questsMemory )
 {
 	/*unsigned oldIndex;
 	unsigned qm_length, qa, nr;
@@ -47,6 +53,9 @@ void load_quests (const char* filename, unsigned int category)
 	char true_filename[16];
 	QDETAILS* ql;
 	int extf;
+	char* languageExts[10];
+	unsigned char qpd_buffer  [PRS_BUFFER];
+	unsigned char qpdc_buffer [PRS_BUFFER];
 
 	qm = &quest_menus[category];
 	printf ("Loading quest list from %s ... \n", filename);

@@ -1,3 +1,5 @@
+#include "stdafx.h"
+#define PRS_BUFFER 262144
 
 /* Assembled Quest Menu Structure */
 
@@ -28,3 +30,6 @@ typedef struct st_quest {
 	unsigned max_objects;
 	unsigned char* objectdata;
 } QUEST;
+
+/* Function Definitions */
+void load_quests (const char* filename, unsigned int category, QUEST_MENU* quest_menus, unsigned int numLanguages, QUEST* quests, unsigned int numQuests, unsigned int questsMemory);

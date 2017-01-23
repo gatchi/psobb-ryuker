@@ -44,7 +44,6 @@
 #define MAX_SIMULTANEOUS_CONNECTIONS 6
 #define MAX_SAVED_LOBBIES 20
 #define ALL_ARE_GM 0
-#define PRS_BUFFER 262144
 #define MAX_SENDCHECK 0x0B
 #define SHIP_COMPILED_MAX_GAMES 75
 
@@ -591,32 +590,31 @@ fd_set ReadFDs, WriteFDs, ExceptFDs;
 
 saveLobby savedlobbies[MAX_SAVED_LOBBIES];
 unsigned char dp[TCP_BUFFER_SIZE*4];		// what is this?????
-unsigned ship_ignore_list[300] = {0};
-unsigned ship_ignore_count = 0;
+unsigned int ship_ignore_list[300] = {0};
+unsigned int ship_ignore_count = 0;
 char Ship_Name[255];
 SHIPLIST shipdata[200];
 BLOCK* blocks[10];
 QUEST quests[512];
 QUEST_MENU quest_menus[12];
-unsigned* quest_allow = 0; // the "allow" list for the 0x60CA command...
-unsigned quest_numallows;
-unsigned numQuests = 0;
-unsigned questsMemory = 0;
-char* languageExts[10];
+unsigned* int quest_allow = 0; // the "allow" list for the 0x60CA command...
+unsigned int quest_numallows;
+unsigned int numQuests = 0;
+unsigned int questsMemory = 0;
 char* languageNames[10];
-unsigned numLanguages = 0;
-unsigned totalShips = 0;
+unsigned int numLanguages = 0;
+unsigned int totalShips = 0;
 BATTLEPARAM ep1battle[374];
 BATTLEPARAM ep2battle[374];
 BATTLEPARAM ep4battle[332];
 BATTLEPARAM ep1battle_off[374];
 BATTLEPARAM ep2battle_off[374];
 BATTLEPARAM ep4battle_off[332];
-unsigned battle_count;
+unsigned int battle_count;
 SHOP shops[7000];
-unsigned shop_checksum;
-unsigned shopidx[200];
-unsigned ship_index;
+unsigned int shop_checksum;
+unsigned int shopidx[200];
+unsigned int ship_index;
 unsigned char ship_key[128];
 
 // New leet parameter tables!!!!111oneoneoneeleven
@@ -2366,8 +2364,6 @@ void ShipProcessPacket (PSO_CLIENT* client)
 	}
 }
 
-unsigned char qpd_buffer  [PRS_BUFFER];
-unsigned char qpdc_buffer [PRS_BUFFER];
 //LOBBY fakelobby;
 
 
