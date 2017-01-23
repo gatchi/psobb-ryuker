@@ -51,21 +51,7 @@
 #define SEND_PACKET_03 0x00
 #define RECEIVE_PACKET_93 0x0A
 
-// Our Character Classes
-
-#define CLASS_HUMAR 0x00
-#define CLASS_HUNEWEARL 0x01
-#define CLASS_HUCAST 0x02
-#define CLASS_RAMAR 0x03
-#define CLASS_RACAST 0x04
-#define CLASS_RACASEAL 0x05
-#define CLASS_FOMARL 0x06
-#define CLASS_FONEWM 0x07
-#define CLASS_FONEWEARL 0x08
-#define CLASS_HUCASEAL 0x09
-#define CLASS_FOMAR 0x0A
-#define CLASS_RAMARL 0x0B
-#define CLASS_MAX 0x0C
+#include "classes.h"
 
 // Class equip_flags
 
@@ -858,7 +844,6 @@ void SendToLobby (LOBBY* l, unsigned max_send, unsigned char* src, unsigned shor
 	}
 }
 
-
 void removeClientFromLobby (PSO_CLIENT* client)
 {
 	unsigned ch, maxch, lowestID;
@@ -1456,61 +1441,6 @@ INVENTORY_ITEM sort_data[30];
 BANK_ITEM bank_data[200];
 
 const char lobbyString[] = { "L\0o\0b\0b\0y\0 \0" };
-
-void AddPB ( unsigned char* flags, unsigned char* blasts, unsigned char pb )
-{
-	int pb_exists = 0;
-	unsigned char pbv;
-	unsigned pb_slot;
-
-	if ( ( *flags & 0x01 ) == 0x01 )
-	{
-		if ( ( *blasts & 0x07 ) == pb )
-			pb_exists = 1;
-	}
-
-	if ( ( *flags & 0x02 ) == 0x02 )
-	{
-		if ( ( ( *blasts / 8 ) & 0x07 ) == pb )
-			pb_exists = 1;
-	}
-
-	if ( ( *flags  & 0x04 ) == 0x04 )
-		pb_exists = 1;
-
-	if (!pb_exists)
-	{
-		if ( ( *flags & 0x01 ) == 0 )
-			pb_slot = 0;
-		else
-		if ( ( *flags & 0x02 ) == 0 )
-			pb_slot = 1;
-		else
-			pb_slot = 2;
-		switch ( pb_slot )
-		{
-		case 0x00:
-			*blasts &= 0xF8;
-			*flags  |= 0x01;
-			break;
-		case 0x01:
-			pb *= 8;
-			*blasts &= 0xC7;
-			*flags  |= 0x02;
-			break;
-		case 0x02:
-			pbv = pb;
-			if ( ( *blasts & 0x07 ) < pb )
-				pbv--;
-			if ( ( ( *blasts / 8 ) & 0x07 ) < pb )
-				pbv--;
-			pb = pbv * 0x40;
-			*blasts &= 0x3F;
-			*flags  |= 0x04;
-		}
-		*blasts |= pb;
-	}
-}
 
 void SkipToLevel (unsigned short target_level, PSO_CLIENT* client, int quiet)
 {
@@ -12941,4 +12871,259 @@ void GenerateCommonItem (int item_type, int is_enemy, unsigned char sid, GAME_IT
 		break;
 	}
 	i->item.itemid = l->itemID++;
+}
+
+void feed_mag (unsigned int magid, unsigned int itemid, PSO_CLIENT* client)
+{
+	int found_mag = -1;
+	int found_item = -1;
+	unsigned ch, ch2, mt_index;
+	int EvolutionClass = 0;
+	MAG* m;
+	unsigned short* ft;
+	short mIQ, mDefense, mPower, mDex, mMind;
+
+	for (ch=0;ch<client->character.inventoryUse;ch++)
+	{
+		if (client->character.inventory[ch].item.itemid == magid)
+		{
+			// Found mag
+			if ((client->character.inventory[ch].item.data[0] == 0x02) &&
+				(client->character.inventory[ch].item.data[1] <= Mag_Agastya))
+			{
+				found_mag = ch;
+				m = (MAG*) &client->character.inventory[ch].item.data[0];
+				for (ch2=0;ch2<client->character.inventoryUse;ch2++)
+				{
+					if (client->character.inventory[ch2].item.itemid == itemid)
+					{
+						// Found item to feed
+						if  (( client->character.inventory[ch2].item.data[0] == 0x03 ) &&
+							( client->character.inventory[ch2].item.data[1]  < 0x07 ) &&
+							( client->character.inventory[ch2].item.data[1] != 0x02 ) &&
+							( client->character.inventory[ch2].item.data[5] >  0x00 ))
+						{
+							found_item = ch2;
+							switch (client->character.inventory[ch2].item.data[1])
+							{
+							case 0x00:
+								mt_index = client->character.inventory[ch2].item.data[2];
+								break;
+							case 0x01:
+								mt_index = 3 + client->character.inventory[ch2].item.data[2];
+								break;
+							case 0x03:
+							case 0x04:
+							case 0x05:
+								mt_index = 5 + client->character.inventory[ch2].item.data[1];
+								break;
+							case 0x06:
+								mt_index = 6 + client->character.inventory[ch2].item.data[2];
+								break;
+							}
+						}
+						break;
+					}
+				}
+			}
+			break;
+		}
+	}
+
+	if ( ( found_mag == -1 ) || ( found_item == -1 ) )
+	{
+		Send1A ("Could not find mag to feed or item to feed said mag.", client);
+		client->todc = 1;
+	}
+	else
+	{
+		DeleteItemFromClient ( itemid, 1, 0, client );
+
+		// Rescan to update Mag pointer (if changed due to clean up)
+		for (ch=0;ch<client->character.inventoryUse;ch++)
+		{
+			if (client->character.inventory[ch].item.itemid == magid)
+			{
+				// Found mag (again)
+				if ((client->character.inventory[ch].item.data[0] == 0x02) &&
+					(client->character.inventory[ch].item.data[1] <= Mag_Agastya))
+				{
+					found_mag = ch;
+					m = (MAG*) &client->character.inventory[ch].item.data[0];
+					break;
+				}
+			}
+		}
+			
+		// Feed that mag (Updates to code by Lee from schtserv.com)
+		switch (m->mtype)
+		{
+		case Mag_Mag:
+			ft = &Feed_Table0[0];
+			EvolutionClass = 0;
+			break;
+		case Mag_Varuna:
+		case Mag_Vritra:
+		case Mag_Kalki:
+			EvolutionClass = 1;
+			ft = &Feed_Table1[0];
+			break;
+		case Mag_Ashvinau:
+		case Mag_Sumba:
+		case Mag_Namuci:
+		case Mag_Marutah:
+		case Mag_Rudra:
+			ft = &Feed_Table2[0];
+			EvolutionClass = 2;
+			break;
+		case Mag_Surya:
+		case Mag_Tapas:
+		case Mag_Mitra:
+			ft = &Feed_Table3[0];
+			EvolutionClass = 2;
+			break;
+		case Mag_Apsaras:
+		case Mag_Vayu:
+		case Mag_Varaha:
+		case Mag_Ushasu:
+		case Mag_Kama:
+		case Mag_Kaitabha:
+		case Mag_Kumara:
+		case Mag_Bhirava:
+			EvolutionClass = 3;
+			ft = &Feed_Table4[0];
+			break;
+		case Mag_Ila:
+		case Mag_Garuda:
+		case Mag_Sita:
+		case Mag_Soma:
+		case Mag_Durga:
+		case Mag_Nandin:
+		case Mag_Yaksa:
+		case Mag_Ribhava:
+			EvolutionClass = 3;
+			ft = &Feed_Table5[0];
+			break;
+		case Mag_Andhaka:
+		case Mag_Kabanda:
+		case Mag_Naga:
+		case Mag_Naraka:
+		case Mag_Bana:
+		case Mag_Marica:
+		case Mag_Madhu:
+		case Mag_Ravana:
+			EvolutionClass = 3;
+			ft = &Feed_Table6[0];
+			break;
+		case Mag_Deva:
+		case Mag_Rukmin:
+		case Mag_Sato:
+			ft = &Feed_Table5[0];
+			EvolutionClass = 4;
+			break;
+		case Mag_Rati:
+		case Mag_Pushan:
+		case Mag_Bhima:
+			ft = &Feed_Table6[0];
+			EvolutionClass = 4;
+			break;
+		default:
+			ft = &Feed_Table7[0];
+			EvolutionClass = 4;
+			break;
+		}
+		mt_index *= 6;
+		m->synchro += ft[mt_index];
+		if (m->synchro < 0)
+			m->synchro = 0;
+		if (m->synchro > 120)
+			m->synchro = 120;
+		mIQ = m->IQ;
+		mIQ += ft[mt_index+1];
+		if (mIQ < 0)
+			mIQ = 0;
+		if (mIQ > 200)
+			mIQ = 200;
+		m->IQ = (unsigned char) mIQ;
+
+		// Add Defense
+
+		mDefense  = m->defense % 100;
+		mDefense += ft[mt_index+2];
+
+		if ( mDefense < 0 )
+			mDefense = 0;
+
+		if ( mDefense >= 100 )
+		{
+			if ( m->level == 200 )
+				mDefense = 99; // Don't go above level 200
+			else
+				m->level++; // Level up!
+			m->defense  = ( ( m->defense / 100 ) * 100 ) + mDefense;
+			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+		}
+		else
+			m->defense  = ( ( m->defense / 100 ) * 100 ) + mDefense;
+
+		// Add Power
+
+		mPower  = m->power % 100;
+		mPower += ft[mt_index+3];
+
+		if ( mPower < 0 )
+			mPower = 0;
+
+		if ( mPower >= 100 )
+		{
+			if ( m->level == 200 )
+				mPower = 99; // Don't go above level 200
+			else
+				m->level++; // Level up!
+			m->power  = ( ( m->power / 100 ) * 100 ) + mPower;
+			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+		}
+		else
+			m->power  = ( ( m->power / 100 ) * 100 ) + mPower;
+
+		// Add Dex
+
+		mDex  = m->dex % 100;
+		mDex += ft[mt_index+4];
+
+		if ( mDex < 0 )
+			mDex = 0;
+
+		if ( mDex >= 100 )
+		{
+			if ( m->level == 200 )
+				mDex = 99; // Don't go above level 200
+			else
+				m->level++; // Level up!
+			m->dex  = ( ( m->dex / 100 ) * 100 ) + mDex;
+			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+		}
+		else
+			m->dex  = ( ( m->dex / 100 ) * 100 ) + mDex;
+
+		// Add Mind
+
+		mMind  = m->mind % 100;
+		mMind += ft[mt_index+5];
+
+		if ( mMind < 0 )
+			mMind = 0;
+
+		if ( mMind >= 100 )
+		{
+			if ( m->level == 200 )
+				mMind = 99; // Don't go above level 200
+			else
+				m->level++; // Level up!
+			m->mind  = ( ( m->mind / 100 ) * 100 ) + mMind;
+			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+		}
+		else
+			m->mind  = ( ( m->mind / 100 ) * 100 ) + mMind;
+	}
 }

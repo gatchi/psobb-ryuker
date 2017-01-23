@@ -1,3 +1,5 @@
+#define NO_ALIGN
+
 /* Mag Structure */
 typedef struct NO_ALIGN st_mag
 {
@@ -23,3 +25,4 @@ void mag_lvl50_evolution ( MAG* m, unsigned char sectionID, unsigned char type, 
 void mag_lvl35_evolution ( MAG* m, unsigned char sectionID, unsigned char type, int EvolutionClass );
 void mag_lvl10_evolution ( MAG* m, unsigned char sectionID, unsigned char type, int EvolutionClass );
 void check_mag_evolution ( MAG* m, unsigned char sectionID, unsigned char type, int EvolutionClass );
+void AddPB ( unsigned char* flags, unsigned char* blasts, unsigned char pb );
