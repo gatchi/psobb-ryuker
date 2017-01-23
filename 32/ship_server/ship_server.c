@@ -43,7 +43,6 @@
 #define LOGIN_RECONNECT_SECONDS 15
 #define MAX_SIMULTANEOUS_CONNECTIONS 6
 #define MAX_SAVED_LOBBIES 20
-#define MAX_GCSEND 2000
 #define ALL_ARE_GM 0
 #define PRS_BUFFER 262144
 #define MAX_SENDCHECK 0x0B
@@ -608,8 +607,6 @@ saveLobby savedlobbies[MAX_SAVED_LOBBIES];
 unsigned char dp[TCP_BUFFER_SIZE*4];		// what is this?????
 unsigned ship_ignore_list[300] = {0};
 unsigned ship_ignore_count = 0;
-unsigned ship_gcsend_list[MAX_GCSEND*3] = {0};
-unsigned ship_gcsend_count = 0;
 char Ship_Name[255];
 SHIPLIST shipdata[200];
 BLOCK* blocks[10];

@@ -1,4 +1,9 @@
-void prep_guildcard ( unsigned int from, unsigned int to )
+#include "account.h"
+
+unsigned ship_gcsend_count = 0;
+unsigned ship_gcsend_list[MAX_GCSEND*3] = {0};
+
+void prep_guildcard ( unsigned int from, unsigned int to, time_t servertime )
 {
 	int gc_present = 0;
 	unsigned hightime = 0xFFFFFFFF;
