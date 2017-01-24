@@ -14175,3 +14175,9 @@ void load_ship_config_file()
 		common_rates[4] = 100000 / meseta_drop_rate;
 		load_mask_file();
 }
+
+void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned int size)
+{
+	memcpy (dest,src,size);
+	pso_crypt_decrypt_bb(cipher_ptr,dest,size);
+}

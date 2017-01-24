@@ -1,5 +1,8 @@
-/* PSO encryption and compression functions. */
+#include "stdafx.h"
+#include "pso_crypt.h"
+#include "bbtable.h"
 
+/* PSO encryption and compression functions. */
 
 /* Blue Burst encryption routines */
 
@@ -78,12 +81,6 @@ void pso_crypt_encrypt_bb (PSO_CRYPT *pcry, unsigned char *data, unsigned int le
 		*(unsigned long *) &data[edx+4] = ebx;
 		edx = edx+8;
 	}
-}
-
-void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned int size)
-{
-	memcpy (dest,src,size);
-	pso_crypt_decrypt_bb(cipher_ptr,dest,size);
 }
 
 void pso_crypt_table_init_bb (PSO_CRYPT *pcry, const unsigned char *salt)
