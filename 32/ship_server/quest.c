@@ -26,7 +26,7 @@ int qflag_ep1solo (unsigned char* flag_data, unsigned int difficulty)
 	return 1;
 }
 
-void load_quests (const char* filename, unsigned int category, QUEST_MENU* quest_menus, unsigned int numLanguages, QUEST* quests, unsigned int numQuests, unsigned int questsMemory )
+void load_quests (const char* filename, unsigned int category, QUEST_MENU* quest_menus, unsigned int numLanguages, QUEST* quests, unsigned int numQuests, unsigned int questsMemory, char* languageExts )
 {
 	/*unsigned oldIndex;
 	unsigned qm_length, qa, nr;
@@ -53,7 +53,6 @@ void load_quests (const char* filename, unsigned int category, QUEST_MENU* quest
 	char true_filename[16];
 	QDETAILS* ql;
 	int extf;
-	char* languageExts[10];
 	unsigned char qpd_buffer  [PRS_BUFFER];
 	unsigned char qpdc_buffer [PRS_BUFFER];
 

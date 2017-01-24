@@ -32,4 +32,4 @@ typedef struct st_quest {
 } QUEST;
 
 /* Function Definitions */
-void load_quests (const char* filename, unsigned int category, QUEST_MENU* quest_menus, unsigned int numLanguages, QUEST* quests, unsigned int numQuests, unsigned int questsMemory);
+void load_quests (const char* filename, unsigned int category, QUEST_MENU* quest_menus, unsigned int numLanguages, QUEST* quests, unsigned int numQuests, unsigned int questsMemory, char* languageExts);

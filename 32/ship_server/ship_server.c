@@ -497,7 +497,7 @@ FILE* debugfile;
 
 // Random drop rates
 
-unsigned int WEAPON_DROP_RATE, ARMOR_DROP_RATE, MAG_DROP_RATE, TOOL_DROP_RATE, MESETA_DROP_RATE, EXPERIENCE_RATE;
+unsigned int weapon_drop_rate, armor_drop_rate, mag_drop_rate, tool_drop_rate, meseta_drop_rate, experience_rate;
 unsigned int common_rates[5] = { 0 };
 
 // Rare monster appearance rates (why is only one of them initialized to zero?
@@ -541,8 +541,8 @@ unsigned localName = 0xFFB0C4DE;
 
 unsigned short ship_banmasks[5000][4] = {0}; // IP address ban masks
 BANDATA ship_bandata[5000];
-unsigned num_masks = 0;
-unsigned num_bans = 0;
+unsigned int num_masks = 0;
+unsigned int num_bans = 0;
 
 /* Common tables */
 
@@ -602,6 +602,7 @@ unsigned int quest_numallows;
 unsigned int numQuests = 0;
 unsigned int questsMemory = 0;
 char* languageNames[10];
+char* languageExts[10];
 unsigned int numLanguages = 0;
 unsigned int totalShips = 0;
 BATTLEPARAM ep1battle[374];
@@ -2166,7 +2167,7 @@ void BlockProcessPacket (PSO_CLIENT* client)
 										client->encryptbuf[0x02] = 0x60;
 										client->encryptbuf[0x08] = 0xDD;
 										client->encryptbuf[0x09] = 0x03;
-										client->encryptbuf[0x0A] = (unsigned char) EXPERIENCE_RATE;
+										client->encryptbuf[0x0A] = (unsigned char) experience_rate;
 										cipher_ptr = &client->server_cipher;
 										encryptcopy (client, &client->encryptbuf[0x00], 0x0C);
 										UpdateGameItem (client);
@@ -2527,12 +2528,12 @@ int main()
 		}
 
 	printf ("\n.. done!\n\nBuilding common tables... \n\n");
-	printf ("Weapon drop rate: %03f%%\n", (float) WEAPON_DROP_RATE / 1000);
-	printf ("Armor drop rate: %03f%%\n", (float) ARMOR_DROP_RATE / 1000);
-	printf ("Mag drop rate: %03f%%\n", (float) MAG_DROP_RATE / 1000);
-	printf ("Tool drop rate: %03f%%\n", (float) TOOL_DROP_RATE / 1000);
-	printf ("Meseta drop rate: %03f%%\n", (float) MESETA_DROP_RATE / 1000);
-	printf ("Experience rate: %u%%\n\n", EXPERIENCE_RATE * 100);
+	printf ("Weapon drop rate: %03f%%\n", (float) weapon_drop_rate / 1000);
+	printf ("Armor drop rate: %03f%%\n", (float) armor_drop_rate / 1000);
+	printf ("Mag drop rate: %03f%%\n", (float) mag_drop_rate / 1000);
+	printf ("Tool drop rate: %03f%%\n", (float) tool_drop_rate / 1000);
+	printf ("Meseta drop rate: %03f%%\n", (float) meseta_drop_rate / 1000);
+	printf ("Experience rate: %u%%\n\n", experience_rate * 100);
 
 	ch = 0;
 	while (ch < 100000)
@@ -4116,7 +4117,7 @@ void Command10(unsigned blockServer, PSO_CLIENT* client)
 					client->encryptbuf[0x02] = 0x60;
 					client->encryptbuf[0x08] = 0xDD;
 					client->encryptbuf[0x09] = 0x03;
-					client->encryptbuf[0x0A] = (unsigned char) EXPERIENCE_RATE;
+					client->encryptbuf[0x0A] = (unsigned char) experience_rate;
 					cipher_ptr = &client->server_cipher;
 					encryptcopy (client, &client->encryptbuf[0x00], 0x0C);
 					UpdateGameItem (client);
@@ -10467,7 +10468,7 @@ void Send60 (PSO_CLIENT* client)
 					{
 						l->monsterData[mid].dead[client->clientID] = 1;
 
-						XP = l->mapData[mid].exp * EXPERIENCE_RATE;
+						XP = l->mapData[mid].exp * experience_rate;
 
 						if (!l->quest_loaded)
 						{
@@ -13999,3 +14000,178 @@ void load_map_data (LOBBY* l, int aMob, const char* filename)
 		//debug ("Added %u mids, total: %u", l->mapIndex - oldIndex, l->mapIndex );
 	}
 };
+
+void load_ship_config_file()
+{
+	int config_index = 0;
+	char config_data[255];
+	unsigned ch = 0;
+
+	FILE* fp;
+
+	EXPERIENCE_RATE = 1; // Default to 100% EXP
+
+	if ( ( fp = fopen ("ship.ini", "r" ) ) == NULL )
+	{
+		printf ("The configuration file ship.ini appears to be missing.\n");
+		printf ("Press [ENTER] to quit...");
+		gets(&dp[0]);
+		exit (1);
+	}
+	else
+		while (fgets (&config_data[0], 255, fp) != NULL)
+		{
+			if (config_data[0] != 0x23)
+			{
+				if ((config_index == 0x00) || (config_index == 0x04) || (config_index == 0x05))
+				{
+					ch = strlen (&config_data[0]);
+					if (config_data[ch-1] == 0x0A)
+						config_data[ch--]  = 0x00;
+					config_data[ch] = 0;
+				}
+				switch (config_index)
+				{
+				case 0x00:
+					// Server IP address
+					{
+						if ((config_data[0] == 0x41) || (config_data[0] == 0x61))
+						{
+							autoIP = 1;
+						}
+						else
+						{
+							convertIPString (&config_data[0], ch+1, 1, &serverIP[0] );
+						}
+					}
+					break;
+				case 0x01:
+					// Server Listen Port
+					serverPort = atoi (&config_data[0]);
+					break;
+				case 0x02:
+					// Number of blocks
+					serverBlocks = atoi (&config_data[0]);
+					if (serverBlocks > 10) 
+					{
+						printf ("You cannot host more than 10 blocks... Adjusted.\n");
+						serverBlocks = 10;
+					}
+					if (serverBlocks == 0)
+					{
+						printf ("You have to host at least ONE block... Adjusted.\n");
+						serverBlocks = 1;
+					}
+					break;
+				case 0x03:
+					// Max Client Connections
+					serverMaxConnections = atoi (&config_data[0]);
+					if ( serverMaxConnections > ( serverBlocks * 180 ) )
+					{
+						printf ("\nYou're attempting to server more connections than the amount of blocks\nyou're hosting allows.\nAdjusted...\n");
+						serverMaxConnections = serverBlocks * 180;
+					}
+					if ( serverMaxConnections > SHIP_COMPILED_MAX_CONNECTIONS )
+					{
+						printf ("This copy of the ship serving software has not been compiled to accept\nmore than %u connections.\nAdjusted...\n", SHIP_COMPILED_MAX_CONNECTIONS);
+						serverMaxConnections = SHIP_COMPILED_MAX_CONNECTIONS;
+					}
+					break;
+				case 0x04:
+					// Login server host name or IP
+					{
+						unsigned p;
+						unsigned alpha;
+						alpha = 0;
+						for (p=0;p<ch;p++)
+							if (((config_data[p] >= 65 ) && (config_data[p] <= 90)) ||
+								((config_data[p] >= 97 ) && (config_data[p] <= 122)))
+							{
+								alpha = 1;
+								break;
+							}
+						if (alpha)
+						{
+							struct hostent *IP_host;
+
+							config_data[strlen(&config_data[0])-1] = 0x00;
+							printf ("Resolving %s ...\n", (char*) &config_data[0] );
+							IP_host = gethostbyname (&config_data[0]);
+							if (!IP_host)
+							{
+								printf ("Could not resolve host name.");
+								printf ("Press [ENTER] to quit...");
+								gets(&dp[0]);
+								exit (1);
+							}
+							*(unsigned *) &loginIP[0] = *(unsigned *) IP_host->h_addr;
+						}
+						else
+							convertIPString (&config_data[0], ch+1, 1, &loginIP[0] );
+					}
+					break;
+				case 0x05:
+					// Ship Name
+					memset (&Ship_Name[0], 0, 255 );
+					memcpy (&Ship_Name[0], &config_data[0], ch+1 );
+					Ship_Name[12] = 0x00;
+					break;
+				case 0x06:
+					// Event
+					shipEvent = (unsigned char) atoi (&config_data[0]);
+					PacketDA[0x04] = shipEvent;
+					break;
+				case 0x07:
+					weapon_drop_rate = atoi (&config_data[0]);
+					break;
+				case 0x08:
+					armor_drop_rate = atoi (&config_data[0]);
+					break;
+				case 0x09:
+					mag_drop_rate = atoi (&config_data[0]);
+					break;
+				case 0x0A:
+					TOOL_DROP_RATE = atoi (&config_data[0]);
+					break;
+				case 0x0B:
+					MESETA_DROP_RATE = atoi (&config_data[0]);
+					break;
+				case 0x0C:
+					EXPERIENCE_RATE = atoi (&config_data[0]);
+					if ( EXPERIENCE_RATE > 99 )
+					{
+						printf ("\nWARNING: You have your experience rate set to a very high number.\n");
+						printf ("As of ship_server.exe version 0.038, you now just use single digits\n");
+						printf ("to represent 100%% increments.  (ex. 1 for 100%, 2 for 200%)\n\n");
+						 ("If you've set the high value of %u%% experience on purpose,\n", EXPERIENCE_RATE * 100 );
+						printf ("press [ENTER] to continue, otherwise press CTRL+C to abort.\n");
+						printf (":");
+						gets   (&dp[0]);
+						printf ("\n\n");
+					}
+					break;
+				case 0x0D:
+					ship_support_extnpc = atoi (&config_data[0]);
+					break;
+				default:
+					break;
+				}
+				config_index++;
+			}
+		}
+		fclose (fp);
+
+		if (config_index < 0x0D)
+		{
+			printf ("ship.ini seems to be corrupted.\n");
+			printf ("Press [ENTER] to quit...");
+			gets(&dp[0]);
+			exit (1);
+		}
+		common_rates[0] = 100000 / weapon_drop_rate;
+		common_rates[1] = 100000 / armor_drop_rate;
+		common_rates[2] = 100000 / mag_drop_rate;
+		common_rates[3] = 100000 / tool_drop_rate;
+		common_rates[4] = 100000 / meseta_drop_rate;
+		load_mask_file();
+}
