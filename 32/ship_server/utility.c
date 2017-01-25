@@ -42,7 +42,7 @@ long CalculateChecksum(void* data,unsigned long size)
 	
 	Looks to have been used originally to view the contents of PSO packets.
 */
-void eight_bit_hex_converter ( unsigned char* array, int len )
+void hex_converter ( unsigned char* array, int len )
 {
 	int a = 0;	// array placeholder
 	int b = 0;	// buffer placeholder

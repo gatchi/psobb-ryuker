@@ -1,4 +1,4 @@
-#define TCP_BUFFER_SIZE 4096
+#define TCP_BUFFER_SIZE 64000
 
 /*
 	The ol' PSO packets.

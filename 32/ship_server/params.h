@@ -2,6 +2,31 @@
 
 #include "items.h"
 
+/* Battle parameter structure */
+typedef struct NO_ALIGN st_battleparam {
+	unsigned short ATP;
+	unsigned short MST;
+	unsigned short EVP;
+	unsigned short HP;
+	unsigned short DFP;
+	unsigned short ATA;
+	unsigned short LCK;
+	unsigned short ESP;
+	unsigned reserved1;
+	unsigned reserved2;
+	unsigned reserved3;
+	unsigned XP;
+	unsigned reserved4;
+} BATTLEPARAM;
+
+/* Function Prototypes */
+void load_battle_param (BATTLEPARAM* dest, const char* filename, unsigned num_records, long expected_checksum);
+
+void load_armor_param ();
+
+void LoadCSV(const char* filename);
+void FreeCSV();
+
 /* Main Character Structure */
 typedef struct NO_ALIGN st_chardata {
 	unsigned short packetSize; // 0x00-0x01  // Always set to 0x399C
@@ -98,23 +123,6 @@ typedef struct NO_ALIGN st_chardata {
 	unsigned char teamFlag[2048]; // 0x3198 - 0x3997
 	unsigned char teamRewards[8]; // 0x3998 - 0x39A0
 } CHARDATA;
-
-/* Battle parameter structure */
-typedef struct NO_ALIGN st_battleparam {
-	unsigned short ATP;
-	unsigned short MST;
-	unsigned short EVP;
-	unsigned short HP;
-	unsigned short DFP;
-	unsigned short ATA;
-	unsigned short LCK;
-	unsigned short ESP;
-	unsigned reserved1;
-	unsigned reserved2;
-	unsigned reserved3;
-	unsigned XP;
-	unsigned reserved4;
-} BATTLEPARAM;
 
 
 /* Weapon pmt structure */
@@ -239,12 +247,3 @@ typedef struct st_mapbox {
 	float flag3;
 	unsigned char drop[8];
 } MAP_BOX;
-
-
-/* Function Prototypes */
-void load_battle_param (BATTLEPARAM* dest, const char* filename, unsigned num_records, long expected_checksum);
-void load_armor_param (unsigned char* armor_dfpvar_table, unsigned char* armor_evpvar_table, unsigned char* armor_equip_table, unsigned char* armor_level_table, unsigned char* barrier_dfpvar_table, unsigned char* barrier_evpvar_table, unsigned char* barrier_equip_table, unsigned char* barrier_level_table, unsigned char* stackable_table);
-void load_weapon_param (unsigned char** weapon_equip_table, unsigned char** grind_table, unsigned char** special_table, unsigned char** weapon_atpmax_table);
-void load_tech_param (char** max_tech_level);
-void LoadCSV(const char* filename);
-void FreeCSV();

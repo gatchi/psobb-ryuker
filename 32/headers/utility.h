@@ -1,5 +1,3 @@
-#define TCP_BUFFER_SIZE 64000
-
 /*
 	This is almost like a debug function, really.
 	
@@ -14,7 +12,7 @@
 	
 	Looks to have been used originally to view the contents of PSO packets.
 */
-void eight_bit_hex_converter ( unsigned char* array, int len );
+void hex_converter ( unsigned char* array, int len );
 
 /*
 	Prints the packet to terminal but not without

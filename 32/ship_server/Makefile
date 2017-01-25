@@ -7,9 +7,9 @@ COMPILE = gcc $(CFLAGS) -c
 all: ship_server
 	
 ship_server: ship_server.o prs.o utility.o network.o items.o character.o params.o account.o/
-	           mag.o quest.o fileio.o pso_crypt.o packet.o commands.o mtwist.o
+	           mag.o quest.o pso_crypt.o mtwist.o
 	gcc -o ship_server ship_server.o prs.o mtwist.o utility.o network.o items.o character.o/
-	         mag.o quest.o fileio.o pso_crypt.o packet.o commands.o
+	         mag.o quest.o pso_crypt.o
 
 ship_server.o: ship_server.c
 	$(COMPILE) ship_server.c
@@ -41,17 +41,8 @@ mag.o: mag.c
 quest.o: quest.c
 	$(COMPILE) quest.c
 
-fileio.o: fileio.c
-	$(COMPILE) fileio.c
-
 pso_crypt.o: pso_crypt.c
 	$(COMPILE) pso_crypt.c
-
-packets.o: packet.c
-	$(COMPILE) packet.c
-
-commands.o: commands.c
-	$(COMPILE) commands.c
 
 utility.o: utility.c
 	$(COMPILE) utility.c

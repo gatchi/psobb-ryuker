@@ -1,3 +1,4 @@
+#pragma once
 #define MAX_SAVED_ITEMS 3000
 #define NO_ALIGN
 
@@ -69,4 +70,3 @@ void CheckMaxGrind (INVENTORY_ITEM* i, unsigned char** grind_table);
 unsigned int GetShopPrice(INVENTORY_ITEM* ci, unsigned short** weapon_atpmax_table, unsigned char* armor_dfpvar_table, unsigned char* armor_evpvar_table, unsigned int**** equip_prices, unsigned char* barrier_dfpvar_table, unsigned char* barrier_evpvar_table);
 int check_equip (unsigned char eq_flags, unsigned char cl_flags);
 unsigned long ExpandDropRate(unsigned char pc);
-void LoadShopData2( unsigned int* equip_prices );

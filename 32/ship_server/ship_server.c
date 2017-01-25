@@ -15,8 +15,30 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ************************************************************************/
 
+#include	"stdafx.h"
+
+#include	<string.h>
+#include	<time.h>
+#include	<math.h>
+
 #include "network.h"
 #include "pso_crypt.h"
+#include "crypt.h"
+#include "params.h"
+#include "items.h"
+#include "data.h"
+#include "character.h"
+#include "account.h"
+#include "mag.h"
+#include "quest.h"
+#include "fileio.h"
+#include "mtwist.h"
+#include "utility.h"
+#include "packet.h"
+#include "def_tables.h"
+#include "def_packets.h"
+#include "def_map.h"
+#include "def_block.h"
 
 #define reveal_window \
 	ShowWindow ( consoleHwnd, SW_NORMAL ); \
@@ -25,6 +47,7 @@
 
 #define swapendian(x) ( ( x & 0xFF ) << 8 ) + ( x >> 8 )
 #define FLOAT_PRECISION 0.00001
+#define NO_ALIGN
 
 // To do:
 //
@@ -109,86 +132,12 @@ typedef struct st_lobby {
 	int in_use;
 	int redbox;
 	int slot_use[12];
-	PSO_CLIENT* client[12];
+	PSO_CLIENT* clients[12];
 	BATTLEPARAM* bptable;
 } LOBBY;
 
-// Includes
 
-#include "params.h"
-#include "items.h"
-
-/* Connected Client Structure */
-
-typedef struct st_pso_client {
-	int plySockfd;
-	int block;
-	unsigned char rcvbuf [TCP_BUFFER_SIZE];
-	unsigned short rcvread;
-	unsigned short expect;
-	unsigned char decryptbuf [TCP_BUFFER_SIZE]; // Used when decrypting packets from the client...
-	unsigned char sndbuf [TCP_BUFFER_SIZE];
-	unsigned char encryptbuf [TCP_BUFFER_SIZE]; // Used when making packets to send to the client...
-	unsigned char packet [TCP_BUFFER_SIZE];
-	int snddata, sndwritten;
-	int crypt_on;
-	PSO_CRYPT server_cipher, client_cipher;
-	CHARDATA character;
-	unsigned char equip_flags;
-	unsigned matuse[5];
-	int mode; // Usually set to 0, but changes during challenge and battle play
-	void* character_backup; // regular character copied here during challenge and battle
-	int gotchardata;
-	unsigned guildcard;
-	unsigned temp_guildcard;
-	long long hwinfo;
-	int isgm;
-	int slotnum;
-	unsigned response;		// Last time client responded...
-	unsigned lastTick;		// The last second
-	unsigned toBytesSec;	// How many bytes per second the server sends to the client
-	unsigned fromBytesSec;	// How many bytes per second the server receives from the client
-	unsigned packetsSec;	// How many packets per second the server receives from the client
-	unsigned char sendCheck[MAX_SENDCHECK+2];
-	unsigned char preferred_lobby;
-	unsigned short lobbyNum;
-	unsigned char clientID;
-	int bursting;
-	int teamaccept;
-	int masterxfer;
-	int todc;
-	unsigned dc_time;
-	unsigned char IP_Address[16]; // Text version
-	unsigned char ipaddr[4]; // Binary version
-	unsigned connected;
-	unsigned savetime;
-	unsigned connection_index;
-	unsigned drop_area;
-	long long drop_coords;
-	unsigned drop_item;
-	int released;
-	unsigned char releaseIP[4];
-	unsigned short releasePort;
-	int sending_quest;
-	unsigned qpos;
-	int hasquest;
-	int doneshop[3];
-	int dead;
-	int lobbyOK;
-	unsigned ignore_list[100];
-	unsigned ignore_count;
-	INVENTORY_ITEM tekked;
-	unsigned team_info_flag, team_info_request;
-	unsigned command_cooldown[256];
-	unsigned team_cooldown[32];
-	int bankType;
-	int bankAccess;
-	BANK common_bank;
-	BANK char_bank;
-	void* lobby;
-	int announce;
-	int debugged;
-} PSO_CLIENT;
+#include "ship_client.h"
 
 
 /* Connected Logon Server Structure */
@@ -251,7 +200,8 @@ typedef struct st_saveLobby {
 	unsigned short lobby;
 } saveLobby;
 
-/* function defintions */
+
+/* Function Defintions */
 
 void ShowArrows (PSO_CLIENT* client, int to_all);
 unsigned char* MakePacketEA15 (PSO_CLIENT* client);
@@ -261,7 +211,6 @@ void removeClientFromLobby (PSO_CLIENT* client);
 void encryptcopy (PSO_CLIENT* client, const unsigned char* src, unsigned size);
 void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned size);
 
-void prepare_key(unsigned char *keydata, unsigned len, struct rc4_key *key);
 void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size );
 void decompressShipPacket ( PSO_SERVER* ship, unsigned char* dest, unsigned char* src );
 
@@ -286,203 +235,16 @@ void PromoteTeamMember ( unsigned teamid, unsigned guildcard, unsigned char newl
 void AddTeamMember ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship );
 
 void TeamChat ( unsigned short* text, unsigned short chatsize, unsigned teamid, PSO_SERVER* ship );
+
+void load_map_data (LOBBY* l, int aMob, const char* filename);
+void load_object_data (LOBBY* l, int unused, const char* filename);
+void parse_map_data (LOBBY* l, MAP_MONSTER* mapData, int aMob, unsigned num_records);
 
 void feed_mag (unsigned int magid, unsigned int itemid, PSO_CLIENT* client);
 
+void GenerateCommonItem (int item_type, int is_enemy, unsigned char sid, GAME_ITEM* i, LOBBY* l, PSO_CLIENT* client);
+unsigned int free_game_item (LOBBY* l);
 
-#include "network.h"
-#include "pso_crypt.h"
-
-
-/* Connected Client Structure */
-
-typedef struct st_pso_client {
-	int plySockfd;
-	int block;
-	unsigned char rcvbuf [TCP_BUFFER_SIZE];
-	unsigned short rcvread;
-	unsigned short expect;
-	unsigned char decryptbuf [TCP_BUFFER_SIZE]; // Used when decrypting packets from the client...
-	unsigned char sndbuf [TCP_BUFFER_SIZE];
-	unsigned char encryptbuf [TCP_BUFFER_SIZE]; // Used when making packets to send to the client...
-	unsigned char packet [TCP_BUFFER_SIZE];
-	int snddata, sndwritten;
-	int crypt_on;
-	PSO_CRYPT server_cipher, client_cipher;
-	CHARDATA character;
-	unsigned char equip_flags;
-	unsigned matuse[5];
-	int mode; // Usually set to 0, but changes during challenge and battle play
-	void* character_backup; // regular character copied here during challenge and battle
-	int gotchardata;
-	unsigned guildcard;
-	unsigned temp_guildcard;
-	long long hwinfo;
-	int isgm;
-	int slotnum;
-	unsigned response;		// Last time client responded...
-	unsigned lastTick;		// The last second
-	unsigned toBytesSec;	// How many bytes per second the server sends to the client
-	unsigned fromBytesSec;	// How many bytes per second the server receives from the client
-	unsigned packetsSec;	// How many packets per second the server receives from the client
-	unsigned char sendCheck[MAX_SENDCHECK+2];
-	unsigned char preferred_lobby;
-	unsigned short lobbyNum;
-	unsigned char clientID;
-	int bursting;
-	int teamaccept;
-	int masterxfer;
-	int todc;
-	unsigned dc_time;
-	unsigned char IP_Address[16]; // Text version
-	unsigned char ipaddr[4]; // Binary version
-	unsigned connected;
-	unsigned savetime;
-	unsigned connection_index;
-	unsigned drop_area;
-	long long drop_coords;
-	unsigned drop_item;
-	int released;
-	unsigned char releaseIP[4];
-	unsigned short releasePort;
-	int sending_quest;
-	unsigned qpos;
-	int hasquest;
-	int doneshop[3];
-	int dead;
-	int lobbyOK;
-	unsigned ignore_list[100];
-	unsigned ignore_count;
-	INVENTORY_ITEM tekked;
-	unsigned team_info_flag, team_info_request;
-	unsigned command_cooldown[256];
-	unsigned team_cooldown[32];
-	int bankType;
-	int bankAccess;
-	BANK common_bank;
-	BANK char_bank;
-	void* lobby;
-	int announce;
-	int debugged;
-} PSO_CLIENT;
-
-
-/* Connected Logon Server Structure */
-
-typedef struct st_pso_server {
-	int sockfd;
-	struct in_addr _ip;
-	unsigned char rcvbuf [TCP_BUFFER_SIZE];
-	unsigned long rcvread;
-	unsigned long expect;
-	unsigned char decryptbuf [TCP_BUFFER_SIZE];
-	unsigned char sndbuf [PACKET_BUFFER_SIZE];
-	unsigned char encryptbuf [TCP_BUFFER_SIZE];
-	int snddata, sndwritten;
-	unsigned char packet [PACKET_BUFFER_SIZE];
-	unsigned long packetdata;
-	unsigned long packetread;
-	int crypt_on;
-	unsigned char user_key[128];
-	int key_change[128];
-	struct rc4_key cs_key;
-	struct rc4_key sc_key;
-	unsigned last_ping;
-} PSO_SERVER;
-
-
-
-/* Ship List Structure (Assembled from Logon Packet) */
-
-typedef struct st_shiplist {
-	unsigned shipID;
-	unsigned char ipaddr[4];
-	unsigned short port;
-} SHIPLIST;
-
-
-/* Block Structure */
-
-typedef struct st_block {
-	LOBBY lobbies[16+SHIP_COMPILED_MAX_GAMES];
-	unsigned count; // keep track of how many people are on this block
-} BLOCK;
-
-
-/* Ban Structure */
-
-typedef struct st_bandata
-{
-	unsigned guildcard;
-	unsigned type; // 1 = account, 2 = ipaddr, 3 = hwinfo
-	unsigned ipaddr;
-	long long hwinfo;
-} BANDATA;
-
-
-/* Saved Lobby Structure */
-
-typedef struct st_saveLobby {
-	unsigned guildcard;
-	unsigned short lobby;
-} saveLobby;
-
-/* function defintions */
-
-void ShowArrows (PSO_CLIENT* client, int to_all);
-unsigned char* MakePacketEA15 (PSO_CLIENT* client);
-void SendToLobby (LOBBY* l, unsigned max_send, unsigned char* src, unsigned short size, unsigned nosend );
-void removeClientFromLobby (PSO_CLIENT* client);
-
-void encryptcopy (PSO_CLIENT* client, const unsigned char* src, unsigned size);
-void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned size);
-
-void prepare_key(unsigned char *keydata, unsigned len, struct rc4_key *key);
-void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size );
-void decompressShipPacket ( PSO_SERVER* ship, unsigned char* dest, unsigned char* src );
-
-void CommandED(PSO_CLIENT* client);
-void Command40(PSO_CLIENT* client, PSO_SERVER* ship);
-void Command09(PSO_CLIENT* client);
-void Command10(unsigned blockServer, PSO_CLIENT* client);
-void CommandE8 (PSO_CLIENT* client);
-void CommandD8 (PSO_CLIENT* client);
-void CommandD9 (PSO_CLIENT* client);
-void Command81 (PSO_CLIENT* client, PSO_SERVER* ship);
-void CommandEA (PSO_CLIENT* client, PSO_SERVER* ship);
-
-void AddExp (unsigned int XP, PSO_CLIENT* client);
-
-void CreateTeam (unsigned short* teamname, unsigned guildcard, PSO_SERVER* ship);
-void UpdateTeamFlag (unsigned char* flag, unsigned teamid, PSO_SERVER* ship);
-void DissolveTeam (unsigned teamid, PSO_SERVER* ship);
-void RemoveTeamMember ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship );
-void RequestTeamList ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship );
-void PromoteTeamMember ( unsigned teamid, unsigned guildcard, unsigned char newlevel, PSO_SERVER* ship );
-void AddTeamMember ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship );
-
-void TeamChat ( unsigned short* text, unsigned short chatsize, unsigned teamid, PSO_SERVER* ship );
-
-
-#include	"stdafx.h"
-
-#include	<string.h>
-#include	<time.h>
-#include	<math.h>
-
-#include	"pso_crypt.h"
-#include	"bbtable.h"
-#include	"network.h"
-#include	"utility.h"
-#include	"fileio.h"
-#include	"mtwist.h"
-#include	"params.h"
-#include	"commands.h"
-#include	"items.h"
-#include	"fileio.h"
-#include	"packet.h"
-
-#include	"ship_server.h"
 
 const unsigned char Message03[] = { "Tethealla Ship v.144" };
 
@@ -537,9 +299,9 @@ unsigned normalName = 0xFFFFFFFF;
 unsigned globalName = 0xFF1D94F7;
 unsigned localName = 0xFFB0C4DE;
 
-// What's this?
+/* Ban (IP) Data */
 
-unsigned short ship_banmasks[5000][4] = {0}; // IP address ban masks
+unsigned short ship_banmasks[5000][4]; // IP address ban masks
 BANDATA ship_bandata[5000];
 unsigned int num_masks = 0;
 unsigned int num_bans = 0;
@@ -661,6 +423,29 @@ const char shipSelectString[] = {"S\0h\0i\0p\0 \0S\0e\0l\0e\0c\0t\0"};
 const char blockString[] = {"B\0L\0O\0C\0K\0"};
 
 // Send 8 what...
+
+unsigned char chatBuf[4000];
+unsigned char cmdBuf[4000];
+char* myCommand;
+char* myArgs[64];
+
+// functions start
+char* unicode_to_ascii (unsigned short* ucs)
+{
+	char *s,c;
+
+	s = (char*) &chatBuf[0];
+	while (*ucs != 0x0000)
+	{
+		c = *(ucs++) & 0xFF;
+		if ((c >= 0x20) && (c <= 0x80))
+			*(s++) = c;
+		else
+			*(s++) = 0x20;
+	}
+	*(s++) = 0x00;
+	return (char*) &chatBuf[0];
+}
 
 /*
 	Im guessing by "block" it means a ship block.
@@ -835,10 +620,10 @@ void SendToLobby (LOBBY* l, unsigned max_send, unsigned char* src, unsigned shor
 
 	for (ch=0;ch<max_send;ch++)
 	{
-		if ((l->slot_use[ch]) && (l->client[ch]) && (l->client[ch]->guildcard != nosend))
+		if ((l->slot_use[ch]) && (l->clients[ch]) && (l->clients[ch]->guildcard != nosend))
 		{
-			cipher_ptr = &l->client[ch]->server_cipher;
-			encryptcopy (l->client[ch], src, size);
+			cipher_ptr = &l->clients[ch]->server_cipher;
+			encryptcopy (l->clients[ch], src, size);
 		}
 	}
 }
@@ -857,7 +642,7 @@ void removeClientFromLobby (PSO_CLIENT* client)
 	if (client->clientID < 12)
 	{
 		l->slot_use[client->clientID] = 0;
-		l->client[client->clientID] = 0;
+		l->clients[client->clientID] = 0;
 	}
 
 	if (client->lobbyNum > 0x0F)
@@ -869,7 +654,7 @@ void removeClientFromLobby (PSO_CLIENT* client)
 
 	for (ch=0;ch<maxch;ch++)
 	{
-		if ((l->client[ch]) && (l->slot_use[ch]))
+		if ((l->clients[ch]) && (l->slot_use[ch]))
 			l->lobbyCount++;
 	}
 
@@ -889,7 +674,7 @@ void removeClientFromLobby (PSO_CLIENT* client)
 				lowestID = 0xFFFFFFFF;
 				for (ch=0;ch<4;ch++)
 				{
-					if ((l->slot_use[ch]) && (l->client[ch]) && (l->gamePlayerID[ch] < lowestID))
+					if ((l->slot_use[ch]) && (l->clients[ch]) && (l->gamePlayerID[ch] < lowestID))
 					{
 						// Change leader to oldest person to join game...
 						lowestID = l->gamePlayerID[ch];
@@ -1506,6 +1291,8 @@ void SkipToLevel (unsigned short target_level, PSO_CLIENT* client, int quiet)
 	}
 }
 
+#include "sendpackets.h"
+
 int ban ( unsigned gc_num, unsigned* ipaddr, long long* hwinfo, unsigned type, PSO_CLIENT* client )
 {
 	int banned = 1;
@@ -1629,9 +1416,7 @@ char* myArgs[64];
 
 char character_file[255];
 
-void AddGuildCard (unsigned myGC, unsigned friendGC, unsigned char* friendName, 
-				   unsigned char* friendText, unsigned char friendSecID, unsigned char friendClass,
-				   PSO_SERVER* ship)
+void AddGuildCard (unsigned myGC, unsigned friendGC, unsigned char* friendName, unsigned char* friendText, unsigned char friendSecID, unsigned char friendClass, PSO_SERVER* ship)
 {
 	// Instruct the logon server to add the guild card
 
@@ -1716,11 +1501,11 @@ void ShowArrows (PSO_CLIENT* client, int to_all)
 
 	for (ch=0;ch<12;ch++)
 	{
-		if ((l->slot_use[ch] != 0) && (l->client[ch]))
+		if ((l->slot_use[ch] != 0) && (l->clients[ch]))
 		{
 			total_clients++;
 			PacketData[Packet88Offset+2] = 0x01;
-			*(unsigned*) &PacketData[Packet88Offset+4] = l->client[ch]->character.guildCard;
+			*(unsigned*) &PacketData[Packet88Offset+4] = l->clients[ch]->character.guildCard;
 			PacketData[Packet88Offset+8] = l->arrow_color[ch];
 			Packet88Offset += 12;
 		}
@@ -1735,6 +1520,8 @@ void ShowArrows (PSO_CLIENT* client, int to_all)
 		encryptcopy (client, &PacketData[0x00], Packet88Offset);
 	}
 }
+
+#include "shipsend.h"
 
 void BlockProcessPacket (PSO_CLIENT* client)
 {
@@ -1830,10 +1617,10 @@ void BlockProcessPacket (PSO_CLIENT* client)
 					l = client->lobby;
 
 					for (ch=0;ch<12;ch++)
-						if ( ( l->slot_use[ch] != 0 ) && ( l->client[ch] ) )
+						if ( ( l->slot_use[ch] != 0 ) && ( l->clients[ch] ) )
 						{
 							cipher_ptr = &client->server_cipher;
-							encryptcopy (client, MakePacketEA15 (l->client[ch]), 2152 );
+							encryptcopy (client, MakePacketEA15 (l->clients[ch]), 2152 );
 						}
 						ShowArrows (client, 0);
 						client->bursting = 0;
@@ -1909,10 +1696,10 @@ void BlockProcessPacket (PSO_CLIENT* client)
 					client->encryptbuf[0x0B] = 0x08;
 					SendToLobby (client->lobby, 4, &client->encryptbuf[0x00], 0x0C, 0);
 					for (ch=0;ch<4;ch++)
-						if ( ( l->slot_use[ch] != 0 ) && ( l->client[ch] ) )
+						if ( ( l->slot_use[ch] != 0 ) && ( l->clients[ch] ) )
 						{
 							cipher_ptr = &client->server_cipher;
-							encryptcopy (client, MakePacketEA15 (l->client[ch]), 2152 );
+							encryptcopy (client, MakePacketEA15 (l->clients[ch]), 2152 );
 						}
 					client->bursting = 0;
 				}
@@ -2046,7 +1833,7 @@ void BlockProcessPacket (PSO_CLIENT* client)
 
 				for (ch=0;ch<4;ch++)
 				{
-					if ((l->slot_use[ch]) && (l->client[ch]) && (l->client[ch]->hasquest == 0))
+					if ((l->slot_use[ch]) && (l->clients[ch]) && (l->clients[ch]->hasquest == 0))
 						all_quest = 0;
 				}
 
@@ -2064,12 +1851,12 @@ void BlockProcessPacket (PSO_CLIENT* client)
 				if ((l->inpquest) && (client->bursting))
 				{
 					// Let the leader know it's time to send the remaining state of the quest...
-					cipher_ptr = &l->client[l->leader]->server_cipher;
+					cipher_ptr = &l->clients[l->leader]->server_cipher;
 					memset (&client->encryptbuf[0], 0, 8);
 					client->encryptbuf[0] = 0x08;
 					client->encryptbuf[2] = 0xDD;
 					client->encryptbuf[4] = client->clientID;
-					encryptcopy (l->client[l->leader], &client->encryptbuf[0], 8);
+					encryptcopy (l->clients[l->leader], &client->encryptbuf[0], 8);
 				}
 			}
 			break;
@@ -2367,7 +2154,6 @@ void ShipProcessPacket (PSO_CLIENT* client)
 
 //LOBBY fakelobby;
 
-
 LRESULT CALLBACK WndProc( HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
 	if(message == MYWM_NOTIFYICON)
@@ -2395,2507 +2181,6 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam 
 		}
 	}
 	return DefWindowProc( hwnd, message, wParam, lParam );
-}
-
-/********************************************************
-**
-**		main  :-
-**
-********************************************************/
-
-int main()
-{
-	unsigned ch,ch2,ch3,ch4,ch5,connectNum;
-	int wep_rank;
-	PTDATA ptd;
-	unsigned wep_counters[24] = {0};
-	unsigned tool_counters[28] = {0};
-	unsigned tech_counters[19] = {0};
-	struct in_addr ship_in;
-	struct sockaddr_in listen_in;
-	unsigned listen_length;
-	int block_sockfd[10] = {-1};
-	struct in_addr block_in[10];
-	int ship_sockfd = -1;
-	int pkt_len, pkt_c, bytes_sent;
-	int wserror;
-	WSADATA winsock_data;
-	FILE* fp;
-	unsigned char* connectionChunk;
-	unsigned char* connectionPtr;
-	unsigned char* blockPtr;
-	unsigned char* blockChunk;
-	//unsigned short this_packet;
-	unsigned long logon_this_packet;
-	HINSTANCE hinst;
-    NOTIFYICONDATA nid = {0};
-	WNDCLASS wc = {0};
-	HWND hwndWindow;
-	MSG msg;
-		
-	ch = 0;
-
-	consoleHwnd = GetConsoleWindow();
-	hinst = GetModuleHandle(NULL);
-
-	dp[0] = 0;	// clears dp, so the following can be put into it
-
-	strcat (dp, "Ryuker Ship Server version ");
-	strcat (dp, SERVER_VERSION );
-	strcat (dp, " coded by gatchipatchi");
-	SetConsoleTitle (dp);	// after this, dp goes back to being a general buffer
-
-	printf ("\nTethealla Ship Server version %s  Copyright (C) 2008  Terry Chatman Jr.\n", SERVER_VERSION);
-	printf ("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
-	printf ("This program comes with ABSOLUTELY NO WARRANTY; for details\n");
-	printf ("see section 15 in gpl-3.0.txt\n");
-    printf ("This is free software, and you are welcome to redistribute it\n");
-    printf ("under certain conditions; see gpl-3.0.txt for details.\n");
-
-	/*for (ch=0;ch<5;ch++)
-	{
-		printf (".");
-		Sleep (1000);
-	}*/
-	printf ("\n\n");
-
-	WSAStartup(MAKEWORD(1,1), &winsock_data);
-	
-	printf ("Loading configuration from ship.ini ... ");
-#ifdef LOG_60
-	debugfile = fopen ("60packets.txt", "a");
-	if (!debugfile)
-	{
-		printf ("Could not create 60packets.txt");
-		printf ("Press [ENTER] to quit...");
-		gets (dp);	// see, whaddaye say
-		exit(1);
-	}
-#endif
-	mt_bestseed();
-	load_config_file();
-	printf ("OK!\n\n");
-
-	printf ("Loading language file...\n");
-
-	load_language_file();
-
-	printf ("OK!\n\n");
-
-	printf ("Loading ship_key.bin... ");
-
-	fp = fopen ("ship_key.bin", "rb" );
-	if (!fp)
-	{
-		printf ("Could not locate ship_key.bin!\n");
-		printf ("Hit [ENTER] to quit...");
-		gets (dp);
-		exit (1);
-	}
-
-	fread (&ship_index, 1, 4, fp );
-	fread (&ship_key[0], 1, 128, fp );
-	fclose (fp);
-
-	printf ("OK!\n\nLoading weapon parameter file...\n");
-	load_weapon_param(weapon_equip_table, grind_table, special_table, weapon_atpmax_table);
-	printf ("\n.. done!\n\n");
-
-	printf ("Loading armor & barrier parameter file...\n");
-	load_armor_param (armor_dfpvar_table, armor_evpvar_table, armor_equip_table, armor_level_table, barrier_dfpvar_table, barrier_evpvar_table, barrier_equip_table, barrier_equip_table, barrier_level_table, stackable_table);
-	printf ("\n.. done!\n\n");
-
-	printf ("Loading technique parameter file...\n");
-	load_tech_param();
-	printf ("\n.. done!\n\n");
-
-	for (ch=1;ch<200;ch++)
-		tnlxp[ch] = tnlxp[ch-1] + tnlxp[ch];
-
-	printf ("Loading battle parameter files...\n\n");
-	load_battle_param (&ep1battle_off[0], "param\\BattleParamEntry.dat", 374, 0x8fef1ffe);
-	load_battle_param (&ep1battle[0], "param\\BattleParamEntry_on.dat", 374, 0xb8a2d950);
-	load_battle_param (&ep2battle_off[0], "param\\BattleParamEntry_lab.dat", 374, 0x3dc217f5);
-	load_battle_param (&ep2battle[0], "param\\BattleParamEntry_lab_on.dat", 374, 0x4d4059cf);
-	load_battle_param (&ep4battle_off[0], "param\\BattleParamEntry_ep4.dat", 332, 0x50841167);
-	load_battle_param (&ep4battle[0], "param\\BattleParamEntry_ep4_on.dat", 332, 0x42bf9716);
-
-	for (ch=0;ch<374;ch++)
-		if (ep2battle_off[ch].HP)
-		{
-			ep2battle_off[ch].XP = ( ep2battle_off[ch].XP * 130 ) / 100; // 30% boost to EXP
-			ep2battle[ch].XP     = ( ep2battle[ch].XP * 130 ) / 100;
-		}
-
-	printf ("\n.. done!\n\nBuilding common tables... \n\n");
-	printf ("Weapon drop rate: %03f%%\n", (float) weapon_drop_rate / 1000);
-	printf ("Armor drop rate: %03f%%\n", (float) armor_drop_rate / 1000);
-	printf ("Mag drop rate: %03f%%\n", (float) mag_drop_rate / 1000);
-	printf ("Tool drop rate: %03f%%\n", (float) tool_drop_rate / 1000);
-	printf ("Meseta drop rate: %03f%%\n", (float) meseta_drop_rate / 1000);
-	printf ("Experience rate: %u%%\n\n", experience_rate * 100);
-
-	ch = 0;
-	while (ch < 100000)
-	{
-		for (ch2=0;ch2<5;ch2++)
-		{
-			common_counters[ch2]++;
-			if ((common_counters[ch2] >= common_rates[ch2]) && (ch<100000))
-			{
-				common_table[ch++] = (unsigned char) ch2;
-				common_counters[ch2] = 0;
-			}
-		}
-	}
-
-	printf (".. done!\n\n");
-
-	printf ("Loading param\\ItemPT.gsl...\n");
-	fp = fopen ("param\\ItemPT.gsl", "rb");
-	if (!fp)
-	{
-		printf ("Can't proceed without ItemPT.gsl\n");
-		printf ("Press [ENTER] to quit...");
-		gets (dp);
-		exit (1);
-	}
-	fseek (fp, 0x3000, SEEK_SET);
-
-	// Load up that EP1 data
-	printf ("Parse Episode I data... (This may take awhile...)\n");
-	for (ch2=0;ch2<4;ch2++) // For each difficulty
-	{
-		for (ch=0;ch<10;ch++) // For each ID
-		{
-			fread  (&ptd, 1, sizeof (PTDATA), fp);
-
-			ptd.enemy_dar[44] = 100; // Dragon
-			ptd.enemy_dar[45] = 100; // De Rol Le
-			ptd.enemy_dar[46] = 100; // Vol Opt
-			ptd.enemy_dar[47] = 100; // Falz
-
-			for (ch3=0;ch3<10;ch3++)
-			{
-				ptd.box_meseta[ch3][0] = swapendian ( ptd.box_meseta[ch3][0] );
-				ptd.box_meseta[ch3][1] = swapendian ( ptd.box_meseta[ch3][1] );
-			}
-
-			for (ch3=0;ch3<0x64;ch3++)
-			{
-				ptd.enemy_meseta[ch3][0] = swapendian ( ptd.enemy_meseta[ch3][0] );
-				ptd.enemy_meseta[ch3][1] = swapendian ( ptd.enemy_meseta[ch3][1] );
-			}
-
-			ptd.enemy_meseta[47][0] = ptd.enemy_meseta[46][0] + 400 + ( 100 * ch2 ); // Give Falz some meseta
-			ptd.enemy_meseta[47][1] = ptd.enemy_meseta[46][1] + 400 + ( 100 * ch2 );
-
-			for (ch3=0;ch3<23;ch3++)
-			{
-				for (ch4=0;ch4<6;ch4++)
-					ptd.percent_pattern[ch3][ch4] = swapendian ( ptd.percent_pattern[ch3][ch4] );
-			}
-
-			for (ch3=0;ch3<28;ch3++)
-			{
-				for (ch4=0;ch4<10;ch4++)
-				{
-					if (ch3 == 23)
-						ptd.tool_frequency[ch3][ch4] = 0;
-					else
-						ptd.tool_frequency[ch3][ch4] = swapendian ( ptd.tool_frequency[ch3][ch4] );
-				}
-			}
-
-			memcpy (&pt_tables_ep1[ch][ch2], &ptd, sizeof (PTDATA));
-
-			// Set up the weapon drop table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&wep_counters[0], 0, 4 * 24 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<12;ch4++)
-					{
-						wep_counters[ch4] += ptd.weapon_ratio[ch4];
-						if ((wep_counters[ch4] >= 0xFF) && (ch3<4096))
-						{
-							wep_rank  = ptd.weapon_minrank[ch4];
-							wep_rank += ptd.area_pattern[ch5];
-							if ( wep_rank >= 0 )
-							{
-								weapon_drops_ep1[ch][ch2][ch5][ch3++] = ( ch4 + 1 ) + ( (unsigned char) wep_rank << 8 );
-								wep_counters[ch4] = 0;
-							}
-						}
-					}
-				}
-			}
-
-			// Set up the slot table
-
-			memset (&wep_counters[0], 0, 4 * 24 );
-			ch3 = 0;
-
-			while (ch3 < 4096)
-			{
-				for (ch4=0;ch4<5;ch4++)
-				{
-					wep_counters[ch4] += ptd.slot_ranking[ch4];
-					if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
-					{
-						slots_ep1[ch][ch2][ch3++] = ch4;
-						wep_counters[ch4] = 0;
-					}
-				}
-			}
-
-			// Set up the power patterns
-
-			for (ch5=0;ch5<4;ch5++)
-			{
-				memset (&wep_counters[0], 0, 4 * 24 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<9;ch4++)
-					{
-						wep_counters[ch4] += ptd.power_pattern[ch4][ch5];
-						if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
-						{
-							power_patterns_ep1[ch][ch2][ch5][ch3++] = ch4;
-							wep_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-			// Set up the percent patterns
-
-			for (ch5=0;ch5<6;ch5++)
-			{
-				memset (&wep_counters[0], 0, 4 * 24 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<23;ch4++)
-					{
-						wep_counters[ch4] += ptd.percent_pattern[ch4][ch5];
-						if ((wep_counters[ch4] >= 0x2710) && (ch3<4096))
-						{
-							percent_patterns_ep1[ch][ch2][ch5][ch3++] = (char) ch4;
-							wep_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-			// Set up the tool table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&tool_counters[0], 0, 4 * 28 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<28;ch4++)
-					{
-						tool_counters[ch4] += ptd.tool_frequency[ch4][ch5];
-						if ((tool_counters[ch4] >= 0x2710) && (ch3<4096))
-						{
-							tool_drops_ep1[ch][ch2][ch5][ch3++] = ch4;
-							tool_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-
-			// Set up the attachment table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&tech_counters[0], 0, 4 * 19 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<6;ch4++)
-					{
-						tech_counters[ch4] += ptd.percent_attachment[ch4][ch5];
-						if ((tech_counters[ch4] >= 0x64) && (ch3<4096))
-						{
-							attachment_ep1[ch][ch2][ch5][ch3++] = ch4;
-							tech_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-
-			// Set up the technique table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&tech_counters[0], 0, 4 * 19 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<19;ch4++)
-					{
-						if (ptd.tech_levels[ch4][ch5*2] >= 0)
-						{
-							tech_counters[ch4] += ptd.tech_frequency[ch4][ch5];
-							if ((tech_counters[ch4] >= 0xFF) && (ch3<4096))
-							{
-								tech_drops_ep1[ch][ch2][ch5][ch3++] = ch4;
-								tech_counters[ch4] = 0;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Load up that EP2 data
-	printf ("Parse Episode II data... (This may take awhile...)\n");
-	for (ch2=0;ch2<4;ch2++) // For each difficulty
-	{
-		for (ch=0;ch<10;ch++) // For each ID
-		{
-			fread (&ptd, 1, sizeof (PTDATA), fp);
-
-			ptd.enemy_dar[73] = 100; // Barba Ray
-			ptd.enemy_dar[76] = 100; // Gol Dragon
-			ptd.enemy_dar[77] = 100; // Gar Gryphon
-			ptd.enemy_dar[78] = 100; // Olga Flow
-
-			for (ch3=0;ch3<10;ch3++)
-			{
-				ptd.box_meseta[ch3][0] = swapendian ( ptd.box_meseta[ch3][0] );
-				ptd.box_meseta[ch3][1] = swapendian ( ptd.box_meseta[ch3][1] );
-			}
-
-			for (ch3=0;ch3<0x64;ch3++)
-			{
-				ptd.enemy_meseta[ch3][0] = swapendian ( ptd.enemy_meseta[ch3][0] );
-				ptd.enemy_meseta[ch3][1] = swapendian ( ptd.enemy_meseta[ch3][1] );
-			}
-
-			ptd.enemy_meseta[78][0] = ptd.enemy_meseta[77][0] + 400 + ( 100 * ch2 ); // Give Flow some meseta
-			ptd.enemy_meseta[78][1] = ptd.enemy_meseta[77][1] + 400 + ( 100 * ch2 );
-
-			for (ch3=0;ch3<23;ch3++)
-			{
-				for (ch4=0;ch4<6;ch4++)
-					ptd.percent_pattern[ch3][ch4] = swapendian ( ptd.percent_pattern[ch3][ch4] );
-			}
-
-			for (ch3=0;ch3<28;ch3++)
-			{
-				for (ch4=0;ch4<10;ch4++)
-				{
-					if (ch3 == 23)
-						ptd.tool_frequency[ch3][ch4] = 0;
-					else
-						ptd.tool_frequency[ch3][ch4] = swapendian ( ptd.tool_frequency[ch3][ch4] );
-				}
-			}
-
-			memcpy ( &pt_tables_ep2[ch][ch2], &ptd, sizeof (PTDATA) );
-
-			// Set up the weapon drop table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&wep_counters[0], 0, 4 * 24 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<12;ch4++)
-					{
-						wep_counters[ch4] += ptd.weapon_ratio[ch4];
-						if ((wep_counters[ch4] >= 0xFF) && (ch3<4096))
-						{
-							wep_rank  = ptd.weapon_minrank[ch4];
-							wep_rank += ptd.area_pattern[ch5];
-							if ( wep_rank >= 0 )
-							{
-								weapon_drops_ep2[ch][ch2][ch5][ch3++] = ( ch4 + 1 ) + ( (unsigned char) wep_rank << 8 );
-								wep_counters[ch4] = 0;
-							}
-						}
-					}
-				}
-			}
-
-
-			// Set up the slot table
-
-			memset (&wep_counters[0], 0, 4 * 24 );
-			ch3 = 0;
-
-			while (ch3 < 4096)
-			{
-				for (ch4=0;ch4<5;ch4++)
-				{
-					wep_counters[ch4] += ptd.slot_ranking[ch4];
-					if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
-					{
-						slots_ep2[ch][ch2][ch3++] = ch4;
-						wep_counters[ch4] = 0;
-					}
-				}
-			}
-
-			// Set up the power patterns
-
-			for (ch5=0;ch5<4;ch5++)
-			{
-				memset (&wep_counters[0], 0, 4 * 24 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<9;ch4++)
-					{
-						wep_counters[ch4] += ptd.power_pattern[ch4][ch5];
-						if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
-						{
-							power_patterns_ep2[ch][ch2][ch5][ch3++] = ch4;
-							wep_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-			// Set up the percent patterns
-
-			for (ch5=0;ch5<6;ch5++)
-			{
-				memset (&wep_counters[0], 0, 4 * 24 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<23;ch4++)
-					{
-						wep_counters[ch4] += ptd.percent_pattern[ch4][ch5];
-						if ((wep_counters[ch4] >= 0x2710) && (ch3<4096))
-						{
-							percent_patterns_ep2[ch][ch2][ch5][ch3++] = (char) ch4;
-							wep_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-			// Set up the tool table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&tool_counters[0], 0, 4 * 28 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<28;ch4++)
-					{
-						tool_counters[ch4] += ptd.tool_frequency[ch4][ch5];
-						if ((tool_counters[ch4] >= 0x2710) && (ch3<4096))
-						{
-							tool_drops_ep2[ch][ch2][ch5][ch3++] = ch4;
-							tool_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-
-			// Set up the attachment table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&tech_counters[0], 0, 4 * 19 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<6;ch4++)
-					{
-						tech_counters[ch4] += ptd.percent_attachment[ch4][ch5];
-						if ((tech_counters[ch4] >= 0x64) && (ch3<4096))
-						{
-							attachment_ep2[ch][ch2][ch5][ch3++] = ch4;
-							tech_counters[ch4] = 0;
-						}
-					}
-				}
-			}
-
-
-			// Set up the technique table
-
-			for (ch5=0;ch5<10;ch5++)
-			{
-				memset (&tech_counters[0], 0, 4 * 19 );
-				ch3 = 0;
-				while (ch3 < 4096)
-				{
-					for (ch4=0;ch4<19;ch4++)
-					{
-						if (ptd.tech_levels[ch4][ch5*2] >= 0)
-						{
-							tech_counters[ch4] += ptd.tech_frequency[ch4][ch5];
-							if ((tech_counters[ch4] >= 0xFF) && (ch3<4096))
-							{
-								tech_drops_ep2[ch][ch2][ch5][ch3++] = ch4;
-								tech_counters[ch4] = 0;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-
-	fclose (fp);
-	printf ("\n.. done!\n\n");
-	printf ("Loading param\\PlyLevelTbl.bin ... ");
-	fp = fopen ( "param\\PlyLevelTbl.bin", "rb" );
-	if (!fp)
-	{
-		printf ("Can't proceed without PlyLevelTbl.bin!\n");
-		printf ("Press [ENTER] to quit...");
-		gets (dp);
-		exit (1);
-	}
-	fread ( &startingData, 1, 12*14, fp );
-	fseek ( fp, 0xE4, SEEK_SET );
-	fread ( &playerLevelData, 1, 28800, fp );
-	fclose ( fp );
-
-	printf ("OK!\n\n.. done!\n\nLoading quests...\n\n");
-	
-	memset (&quest_menus[0], 0, sizeof (quest_menus));
-
-	// 0 = Episode 1 Team
-	// 1 = Episode 2 Team
-	// 2 = Episode 4 Team
-	// 3 = Episode 1 Solo
-	// 4 = Episode 2 Solo
-	// 5 = Episode 4 Solo
-	// 6 = Episode 1 Government
-	// 7 = Episode 2 Government
-	// 8 = Episode 4 Government
-	// 9 = Battle
-	// 10 = Challenge
-
-	load_quests ("quest\\ep1team.ini", 0);
-	load_quests ("quest\\ep2team.ini", 1);
-	load_quests ("quest\\ep4team.ini", 2);
-	load_quests ("quest\\ep1solo.ini", 3);
-	load_quests ("quest\\ep2solo.ini", 4);
-	load_quests ("quest\\ep4solo.ini", 5);
-	load_quests ("quest\\ep1gov.ini", 6);
-	load_quests ("quest\\ep2gov.ini", 7);
-	load_quests ("quest\\ep4gov.ini", 8);
-	load_quests ("quest\\battle.ini", 9);
-
-	printf ("\n%u bytes of memory allocated for %u quests...\n\n", questsMemory, numQuests);
-
-	printf ("Loading shop\\shop.dat ...");
-
-	fp = fopen ( "shop\\shop.dat", "rb" );
-
-	if (!fp)
-	{
-		printf ("Can't proceed without shop.dat!\n");
-		printf ("Press [ENTER] to quit...");
-		gets (dp);
-		exit (1);
-	}
-
-	if ( fread ( &shops[0], 1, 7000 * sizeof (SHOP), fp )  != (7000 * sizeof (SHOP)) )
-	{
-		printf ("Failed to read shop data...\n");
-		printf ("Press [ENTER] to quit...");
-		gets (dp);
-		exit (1);
-	}
-
-	fclose ( fp );
-
-	shop_checksum = calc_checksum ( &shops[0], 7000 * sizeof (SHOP) );
-
-	printf ("done!\n\n");
-
-	LoadShopData2( equip_prices );
-
-	readLocalGMFile();
-
-	// Set up shop indexes based on character levels...
-
-	for (ch=0;ch<200;ch++)
-	{
-		switch (ch / 20L)
-		{
-		case 0:	// Levels 1-20
-			shopidx[ch] = 0;
-			break;
-		case 1: // Levels 21-40
-			shopidx[ch] = 1000;
-			break;
-		case 2: // Levels 41-80
-		case 3:
-			shopidx[ch] = 2000;
-			break;
-		case 4: // Levels 81-120
-		case 5:
-			shopidx[ch] = 3000;
-			break;
-		case 6: // Levels 121-160
-		case 7:
-			shopidx[ch] = 4000;
-			break;
-		case 8: // Levels 161-180
-			shopidx[ch] = 5000;
-			break;
-		default: // Levels 180+
-			shopidx[ch] = 6000;
-			break;
-		}
-	}
-
-	memcpy (&Packet03[0x54], &Message03[0], sizeof (Message03));
-	printf ("\nShip server parameters\n");
-	printf ("///////////////////////\n");
-	printf ("IP: %u.%u.%u.%u\n", serverIP[0], serverIP[1], serverIP[2], serverIP[3] );
-	printf ("Ship Port: %u\n", serverPort );
-	printf ("Number of Blocks: %u\n", serverBlocks );
-	printf ("Maximum Connections: %u\n", serverMaxConnections );
-	printf ("Logon server IP: %u.%u.%u.%u\n", loginIP[0], loginIP[1], loginIP[2], loginIP[3] );
-
-	printf ("\nConnecting to the logon server...\n");
-	initialize_logon();
-	reconnect_logon();
-
-	printf ("\nAllocating %u bytes of memory for blocks... ", sizeof (BLOCK) * serverBlocks );
-	blockChunk = malloc ( sizeof (BLOCK) * serverBlocks );
-	if (!blockChunk)
-	{
-		printf ("Out of memory!\n");
-		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
-		exit (1);
-	}
-	blockPtr = blockChunk;
-	memset (blockChunk, 0, sizeof (BLOCK) * serverBlocks);
-	for (ch=0;ch<serverBlocks;ch++)
-	{
-		blocks[ch] = (BLOCK*) blockPtr;
-		blockPtr += sizeof (BLOCK);
-	}
-
-	printf ("OK!\n");
-
-	printf ("\nAllocating %u bytes of memory for connections... ", sizeof (PSO_CLIENT) * serverMaxConnections );
-	connectionChunk = malloc ( sizeof (PSO_CLIENT) * serverMaxConnections );
-	if (!connectionChunk )
-	{
-		printf ("Out of memory!\n");
-		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
-		exit (1);
-	}
-	connectionPtr = connectionChunk;
-	for (ch=0;ch<serverMaxConnections;ch++)
-	{
-		connections[ch] = (PSO_CLIENT*) connectionPtr;
-		connections[ch]->guildcard = 0;
-		connections[ch]->character_backup = NULL;
-		connections[ch]->mode = 0;
-		initialize_connection (connections[ch]);
-		connectionPtr += sizeof (PSO_CLIENT);
-	}
-
-	printf ("OK!\n\n");
-
-	printf ("Loading ban data... ");
-	fp = fopen ("bandata.dat", "rb");
-	if (fp)
-	{
-		fseek ( fp, 0, SEEK_END );
-		ch = ftell ( fp );
-		num_bans = ch / sizeof (BANDATA);
-		if ( num_bans > 5000 )
-			num_bans = 5000;
-		fseek ( fp, 0, SEEK_SET );
-		fread ( &ship_bandata[0], 1, num_bans * sizeof (BANDATA), fp );
-		fclose ( fp );
-	}
-	printf ("done!\n\n%u bans loaded.\n%u IP mask bans loaded.\n\n",num_bans,num_masks);
-
-	/* Open the ship port... */
-
-	printf ("Opening ship port %u for connections.\n", serverPort);
-
-#ifdef USEADDR_ANY
-	ship_in.s_addr = INADDR_ANY;
-#else
-	memcpy (&ship_in.s_addr, &serverIP[0], 4 );
-#endif
-	ship_sockfd = tcp_sock_open( ship_in, serverPort );
-
-	tcp_listen (ship_sockfd);
-
-	for (ch=1;ch<=serverBlocks;ch++)
-	{
-		printf ("Opening block port %u (BLOCK%u) for connections.\n", serverPort+ch, ch);
-#ifdef USEADDR_ANY
-		block_in[ch-1].s_addr = INADDR_ANY;
-#else
-		memcpy (&block_in[ch-1].s_addr, &serverIP[0], 4 );
-#endif
-		block_sockfd[ch-1] = tcp_sock_open( block_in[ch-1], serverPort+ch );
-		if (block_sockfd[ch-1] < 0)
-		{
-			printf ("Failed to open port %u for connections.\n", serverPort+ch );
-			printf ("Press [ENTER] to quit...");
-			gets(&dp[0]);
-			exit (1);
-		}
-
-		tcp_listen (block_sockfd[ch-1]);
-
-	}
-
-	if (ship_sockfd < 0)
-	{
-		printf ("Failed to open ship port for connections.\n");
-		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
-		exit (1);
-	}
-
-	printf ("\nListening...\n");
-	wc.hbrBackground =(HBRUSH)GetStockObject(WHITE_BRUSH);
-	wc.hIcon = LoadIcon( hinst, IDI_APPLICATION );
-	wc.hCursor = LoadCursor( hinst, IDC_ARROW );
-	wc.hInstance = hinst;
-	wc.lpfnWndProc = WndProc;
-	wc.lpszClassName = "sodaboy";
-	wc.style = CS_HREDRAW | CS_VREDRAW;
-
-	if (! RegisterClass( &wc ) )
-	{
-		printf ("RegisterClass failure.\n");
-		exit (1);
-	}
-
-	hwndWindow = CreateWindow ("sodaboy","hidden window", WS_MINIMIZE, 1, 1, 1, 1, 
-		NULL, 
-		NULL,
-		hinst,
-		NULL );
-
-	if (!hwndWindow)
-	{
-		printf ("Failed to create window.");
-		exit (1);
-	}
-
-	ShowWindow ( hwndWindow, SW_HIDE );
-	UpdateWindow ( hwndWindow );
-	ShowWindow ( consoleHwnd, SW_HIDE );
-	UpdateWindow ( consoleHwnd );
-
-    nid.cbSize				= sizeof(nid);
-	nid.hWnd				= hwndWindow;
-	nid.uID					= 100;
-	nid.uCallbackMessage	= MYWM_NOTIFYICON;
-	nid.uFlags				= NIF_MESSAGE|NIF_ICON|NIF_TIP;
-    nid.hIcon				= LoadIcon(hinst, MAKEINTRESOURCE(IDI_ICON1));
-	nid.szTip[0] = 0;
-	strcat (&nid.szTip[0], "Tethealla Ship ");
-	strcat (&nid.szTip[0], SERVER_VERSION);
-	strcat (&nid.szTip[0], " - Double click to show/hide");
-    Shell_NotifyIcon(NIM_ADD, &nid);
-
-	for (;;)
-	{
-		int nfds = 0;
-
-		/* Process the system tray icon */
-
-		if ( PeekMessage( &msg, hwndWindow, 0, 0, 1 ) )
-		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
-
-
-		/* Ping pong?! */
-
-		servertime = time(NULL);
-
-		/* Clear socket activity flags. */
-
-		FD_ZERO (&ReadFDs);
-		FD_ZERO (&WriteFDs);
-		FD_ZERO (&ExceptFDs);
-
-		// Stop blocking connections after everyone has been disconnected...
-
-		if ((serverNumConnections == 0) && (blockConnections))
-		{
-			blockConnections = 0;
-			printf ("No longer blocking new connections...\n");
-		}
-
-		// Process player packets
-
-		for (ch=0;ch<serverNumConnections;ch++)
-		{
-			connectNum = serverConnectionList[ch];
-			workConnect = connections[connectNum];
-
-			if (workConnect->plySockfd >= 0) 
-			{
-				if (blockConnections)
-				{
-					if (blockTick != (unsigned) servertime)
-					{
-						blockTick = (unsigned) servertime;
-						printf ("Disconnected user %u, left to disconnect: %u\n", workConnect->guildcard, serverNumConnections - 1);
-						Send1A ("You were disconnected by a GM...", workConnect);
-						workConnect->todc = 1;
-					}
-				}
-
-				if (workConnect->lastTick != (unsigned) servertime)
-				{
-					Send1D (workConnect);
-					if (workConnect->lastTick > (unsigned) servertime)
-						ch2 = 1;
-					else
-						ch2 = 1 + ((unsigned) servertime - workConnect->lastTick);
-						workConnect->lastTick = (unsigned) servertime;
-						workConnect->packetsSec /= ch2;
-						workConnect->toBytesSec /= ch2;
-						workConnect->fromBytesSec /= ch2;
-				}
-
-				FD_SET (workConnect->plySockfd, &ReadFDs);
-				nfds = max (nfds, workConnect->plySockfd);
-				FD_SET (workConnect->plySockfd, &ExceptFDs);
-				nfds = max (nfds, workConnect->plySockfd);
-
-				if (workConnect->snddata - workConnect->sndwritten)
-				{
-					FD_SET (workConnect->plySockfd, &WriteFDs);
-					nfds = max (nfds, workConnect->plySockfd);
-				}
-			}
-		}
-
-
-		// Read from logon server (if connected)
-
-		if (logon->sockfd >= 0)
-		{
-			if ((unsigned) servertime - logon->last_ping > 60)
-			{
-				printf ("Logon server ping timeout.  Attempting reconnection in %u seconds...\n", LOGIN_RECONNECT_SECONDS);
-				initialize_logon ();
-			}
-			else
-			{
-				if (logon->packetdata)
-				{
-					logon_this_packet = *(unsigned *) &logon->packet[logon->packetread];
-					memcpy (&logon->decryptbuf[0], &logon->packet[logon->packetread], logon_this_packet);
-
-					LogonProcessPacket ( logon );
-
-					logon->packetread += logon_this_packet;
-
-					if (logon->packetread == logon->packetdata)
-						logon->packetread = logon->packetdata = 0;
-				}
-
-				FD_SET (logon->sockfd, &ReadFDs);
-				nfds = max (nfds, logon->sockfd);
-
-				if (logon->snddata - logon->sndwritten)
-				{
-					FD_SET (logon->sockfd, &WriteFDs);
-					nfds = max (nfds, logon->sockfd);
-				}
-			}
-		}
-		else
-		{
-			logon_tick++;
-			if (logon_tick >= LOGIN_RECONNECT_SECONDS * 100)
-			{
-				printf ("Reconnecting to login server...\n");
-				reconnect_logon();
-			}
-		}
-
-
-		// Listen for block connections
-
-		for (ch=0;ch<serverBlocks;ch++)
-		{
-			FD_SET (block_sockfd[ch], &ReadFDs);
-			nfds = max (nfds, block_sockfd[ch]);
-		}
-
-		// Listen for ship connections
-
-		FD_SET (ship_sockfd, &ReadFDs);
-		nfds = max (nfds, ship_sockfd);
-
-		/* Check sockets for activity. */
-
-		if ( select ( nfds + 1, &ReadFDs, &WriteFDs, &ExceptFDs, &select_timeout ) > 0 ) 
-		{
-			if (FD_ISSET (ship_sockfd, &ReadFDs))
-			{
-				// Someone's attempting to connect to the ship server.
-				ch = free_connection();
-				if (ch != 0xFFFF)
-				{
-					listen_length = sizeof (listen_in);
-					workConnect = connections[ch];
-					if ( ( workConnect->plySockfd = tcp_accept ( ship_sockfd, (struct sockaddr*) &listen_in, &listen_length ) ) > 0 )
-					{
-						if ( !blockConnections )
-						{
-							workConnect->connection_index = ch;
-							serverConnectionList[serverNumConnections++] = ch;
-							memcpy ( &workConnect->IP_Address[0], inet_ntoa (listen_in.sin_addr), 16 );
-							*(unsigned *) &workConnect->ipaddr = *(unsigned *) &listen_in.sin_addr;
-							printf ("Accepted SHIP connection from %s:%u\n", workConnect->IP_Address, listen_in.sin_port );
-							printf ("Player Count: %u\n", serverNumConnections);
-							ShipSend0E (logon);
-							start_encryption (workConnect);
-							/* Doin' ship process... */
-							workConnect->block = 0;
-						}
-						else
-							initialize_connection ( workConnect );
-					}
-				}
-			}
-
-			for (ch=0;ch<serverBlocks;ch++)
-			{
-				if (FD_ISSET (block_sockfd[ch], &ReadFDs))
-				{
-					// Someone's attempting to connect to the block server.
-					ch2 = free_connection();
-					if (ch2 != 0xFFFF)
-					{
-						listen_length = sizeof (listen_in);
-						workConnect = connections[ch2];
-						if  ( ( workConnect->plySockfd = tcp_accept ( block_sockfd[ch], (struct sockaddr*) &listen_in, &listen_length ) ) > 0 )
-						{
-							if ( !blockConnections )
-							{
-								workConnect->connection_index = ch2;
-								serverConnectionList[serverNumConnections++] = ch2;
-								memcpy ( &workConnect->IP_Address[0], inet_ntoa (listen_in.sin_addr), 16 );
-								printf ("Accepted BLOCK connection from %s:%u\n", inet_ntoa (listen_in.sin_addr), listen_in.sin_port );
-								*(unsigned *) &workConnect->ipaddr = *(unsigned *) &listen_in.sin_addr;
-								printf ("Player Count: %u\n", serverNumConnections);
-								ShipSend0E (logon);
-								start_encryption (workConnect);
-								/* Doin' block process... */
-								workConnect->block = ch+1;
-							}
-							else
-								initialize_connection ( workConnect );
-						}
-					}
-				}
-			}
-
-
-			// Process client connections
-
-			for (ch=0;ch<serverNumConnections;ch++)
-			{
-				connectNum = serverConnectionList[ch];
-				workConnect = connections[connectNum];
-
-				if (workConnect->plySockfd >= 0)
-				{
-					if (FD_ISSET(workConnect->plySockfd, &WriteFDs))
-					{
-						// Write shit.
-
-						bytes_sent = send (workConnect->plySockfd, &workConnect->sndbuf[workConnect->sndwritten],
-							workConnect->snddata - workConnect->sndwritten, 0);
-
-						if (bytes_sent == SOCKET_ERROR)
-						{
-							/*
-							wserror = WSAGetLastError();
-							printf ("Could not send data to client...\n");
-							printf ("Socket Error %u.\n", wserror );
-							*/
-							initialize_connection (workConnect);							
-						}
-						else
-						{
-							workConnect->toBytesSec += bytes_sent;
-							workConnect->sndwritten += bytes_sent;
-						}
-
-						if (workConnect->sndwritten == workConnect->snddata)
-							workConnect->sndwritten = workConnect->snddata = 0;
-					}
-
-					// Disconnect those violators of the law...
-
-					if (workConnect->todc)
-						initialize_connection (workConnect);
-
-					if (FD_ISSET(workConnect->plySockfd, &ReadFDs))
-					{
-						// Read shit.
-						if ( ( pkt_len = recv (workConnect->plySockfd, &tmprcv[0], TCP_BUFFER_SIZE - 1, 0) ) <= 0 )
-						{
-							/*
-							wserror = WSAGetLastError();
-							printf ("Could not read data from client...\n");
-							printf ("Socket Error %u.\n", wserror );
-							*/
-							initialize_connection (workConnect);
-						}
-						else
-						{
-							workConnect->fromBytesSec += (unsigned) pkt_len;
-							// Work with it.
-
-							for (pkt_c=0;pkt_c<pkt_len;pkt_c++)
-							{
-								workConnect->rcvbuf[workConnect->rcvread++] = tmprcv[pkt_c];
-
-								if (workConnect->rcvread == 8)
-								{
-									// Decrypt the packet header after receiving 8 bytes.
-
-									cipher_ptr = &workConnect->client_cipher;
-
-									decryptcopy ( &workConnect->decryptbuf[0], &workConnect->rcvbuf[0], 8 );
-
-									// Make sure we're expecting a multiple of 8 bytes.
-
-									workConnect->expect = *(unsigned short*) &workConnect->decryptbuf[0];
-
-									if ( workConnect->expect % 8 )
-										workConnect->expect += ( 8 - ( workConnect->expect % 8 ) );
-
-									if ( workConnect->expect > TCP_BUFFER_SIZE )
-									{
-										initialize_connection ( workConnect );
-										break;
-									}
-								}
-
-								if ( ( workConnect->rcvread == workConnect->expect ) && ( workConnect->expect != 0 ) )
-								{
-									// Decrypt the rest of the data if needed.
-
-									cipher_ptr = &workConnect->client_cipher;
-
-									if ( workConnect->rcvread > 8 )
-										decryptcopy ( &workConnect->decryptbuf[8], &workConnect->rcvbuf[8], workConnect->expect - 8 );
-
-									workConnect->packetsSec ++;
-
-									if (
-										//(workConnect->packetsSec   > 89)    ||
-										(workConnect->fromBytesSec > 30000) ||
-										(workConnect->toBytesSec   > 150000)
-										)
-									{
-										printf ("%u disconnected for possible DDOS. (p/s: %u, tb/s: %u, fb/s: %u)\n", workConnect->guildcard, workConnect->packetsSec, workConnect->toBytesSec, workConnect->fromBytesSec);
-										initialize_connection(workConnect);
-										break;
-									}
-									else
-									{
-										switch (workConnect->block)
-										{
-										case 0x00:
-											// Ship Server
-											ShipProcessPacket (workConnect);
-											break;
-										default:
-											// Block server
-											BlockProcessPacket (workConnect);
-											break;
-										}
-									}
-									workConnect->rcvread = 0;
-								}
-							}
-						}
-					}
-
-					if (FD_ISSET(workConnect->plySockfd, &ExceptFDs)) // Exception?
-						initialize_connection (workConnect);
-
-				}
-			}
-
-
-			// Process logon server connection
-
-			if ( logon->sockfd >= 0 )
-			{
-				if (FD_ISSET(logon->sockfd, &WriteFDs))
-				{
-					// Write shit.
-
-					bytes_sent = send (logon->sockfd, &logon->sndbuf[logon->sndwritten],
-						logon->snddata - logon->sndwritten, 0);
-
-					if (bytes_sent == SOCKET_ERROR)
-					{
-						wserror = WSAGetLastError();
-						printf ("Could not send data to logon server...\n");
-						printf ("Socket Error %u.\n", wserror );
-						initialize_logon();
-						printf ("Lost connection with the logon server...\n");
-						printf ("Reconnect in %u seconds...\n", LOGIN_RECONNECT_SECONDS);
-					}
-					else
-						logon->sndwritten += bytes_sent;
-
-					if (logon->sndwritten == logon->snddata)
-						logon->sndwritten = logon->snddata = 0;
-				}
-
-				if (FD_ISSET(logon->sockfd, &ReadFDs))
-				{
-					// Read shit.
-					if ( ( pkt_len = recv (logon->sockfd, &tmprcv[0], PACKET_BUFFER_SIZE - 1, 0) ) <= 0 )
-					{
-						wserror = WSAGetLastError();
-						printf ("Could not read data from logon server...\n");
-						printf ("Socket Error %u.\n", wserror );
-						initialize_logon();
-						printf ("Lost connection with the logon server...\n");
-						printf ("Reconnect in %u seconds...\n", LOGIN_RECONNECT_SECONDS);
-					}
-					else
-					{
-						// Work with it.
-						for (pkt_c=0;pkt_c<pkt_len;pkt_c++)
-						{
-							logon->rcvbuf[logon->rcvread++] = tmprcv[pkt_c];
-
-							if (logon->rcvread == 4)
-							{
-								/* Read out how much data we're expecting this packet. */
-								logon->expect = *(unsigned *) &logon->rcvbuf[0];
-
-								if ( logon->expect > TCP_BUFFER_SIZE  )
-								{
-									printf ("Received too much data from the logon server.\nSevering connection and will reconnect in %u seconds...\n",  LOGIN_RECONNECT_SECONDS);
-									initialize_logon();
-								}
-							}
-
-							if ( ( logon->rcvread == logon->expect ) && ( logon->expect != 0 ) )
-							{
-								decompressShipPacket ( logon, &logon->decryptbuf[0], &logon->rcvbuf[0] );
-
-								logon->expect = *(unsigned *) &logon->decryptbuf[0];
-
-								if (logon->packetdata + logon->expect < PACKET_BUFFER_SIZE)
-								{
-									memcpy ( &logon->packet[logon->packetdata], &logon->decryptbuf[0], logon->expect );
-									logon->packetdata += logon->expect;
-								}
-								else
-									initialize_logon();
-
-								if ( logon->sockfd < 0 )
-									break;
-
-								logon->rcvread = 0;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return 0;
-}
-
-void CommandED(PSO_CLIENT* client)
-{
-	switch (client->decryptbuf[0x03])
-	{
-		case 0x01:
-			// Options
-			*(unsigned *) &client->character.options[0] = *(unsigned *) &client->decryptbuf[0x08];
-			break;
-		case 0x02:
-			// Symbol Chats
-			memcpy (&client->character.symbol_chats, &client->decryptbuf[0x08], 1248);
-			break;
-		case 0x03:
-			// Shortcuts
-			memcpy (&client->character.shortcuts, &client->decryptbuf[0x08], 2624);
-			break;
-		case 0x04:
-			// Global Key Config
-			memcpy (&client->character.keyConfigGlobal, &client->decryptbuf[0x08], 364);
-			break;
-		case 0x05:
-			// Global Joystick Config
-			memcpy (&client->character.joyConfigGlobal, &client->decryptbuf[0x08], 56);
-			break;
-		case 0x06:
-			// Technique Config
-			memcpy (&client->character.techConfig, &client->decryptbuf[0x08], 40);
-			break;
-		case 0x07:
-			// Character Key Config
-			memcpy (&client->character.keyConfig, &client->decryptbuf[0x08], 232);
-			break;
-		case 0x08:
-			// C-Rank and Battle Config
-			//memcpy (&client->character.challengeData, &client->decryptbuf[0x08], 320);
-			break;
-	}
-}
-
-void Command40(PSO_CLIENT* client, PSO_SERVER* ship)
-{
-	// Guild Card Search
-
-	ship->encryptbuf[0x00] = 0x08;
-	ship->encryptbuf[0x01] = 0x01;
-	*(unsigned *) &ship->encryptbuf[0x02] = *(unsigned *) &client->decryptbuf[0x10];
-	*(unsigned *) &ship->encryptbuf[0x06] = *(unsigned *) &client->guildcard;
-	*(unsigned *) &ship->encryptbuf[0x0A] = serverID;
-	*(unsigned *) &ship->encryptbuf[0x0E] = client->character.teamID;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x21);
-}
-
-void Command09(PSO_CLIENT* client)
-{
-	QUEST* q;
-	PSO_CLIENT* c;
-	LOBBY* l;
-	unsigned lobbyNum, Packet11_Length, ch;
-	char lb[10];
-	int num_hours, num_minutes;
-
-	switch ( client->decryptbuf[0x0F] )
-	{
-	case 0x00:
-		// Team info
-		if ( client->lobbyNum < 0x10 )
-		{
-			if ((!client->block) || (client->block > serverBlocks))
-			{
-				initialize_connection (client);
-				return;
-			}
-
-			lobbyNum = *(unsigned *) &client->decryptbuf[0x0C];
-
-			if ((lobbyNum < 0x10) || (lobbyNum >= 16+SHIP_COMPILED_MAX_GAMES))
-			{
-				initialize_connection (client);
-				return;
-			}
-
-			l = &blocks[client->block - 1]->lobbies[lobbyNum];
-			memset (&PacketData, 0, 0x10);
-			PacketData[0x02] = 0x11;
-			PacketData[0x0A] = 0x20;
-			PacketData[0x0C] = 0x20;
-			PacketData[0x0E] = 0x20;
-			if (l->in_use)
-			{
-				Packet11_Length = 0x10;
-				if ((client->team_info_request != lobbyNum) || (client->team_info_flag == 0))
-				{
-					client->team_info_request = lobbyNum;
-					client->team_info_flag = 1;
-					for (ch=0;ch<4;ch++)
-						if ((l->slot_use[ch]) && (l->client[ch]))
-						{
-							c = l->client[ch];
-							wstrcpy((unsigned short*) &PacketData[Packet11_Length], (unsigned short*) &c->character.name[0]);
-							Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);
-							PacketData[Packet11_Length++] = 0x20;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x4C;
-							PacketData[Packet11_Length++] = 0x00;
-							_itoa (l->client[ch]->character.level + 1, &lb[0], 10);
-							wstrcpy_char(&PacketData[Packet11_Length], &lb[0]);
-							Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);
-							PacketData[Packet11_Length++] = 0x0A;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x20;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x20;
-							PacketData[Packet11_Length++] = 0x00;
-							switch (c->character._class)
-							{
-							case CLASS_HUMAR:
-								wstrcpy_char (&PacketData[Packet11_Length], "HUmar");
-								break;
-							case CLASS_HUNEWEARL:
-								wstrcpy_char (&PacketData[Packet11_Length], "HUnewearl");
-								break;
-							case CLASS_HUCAST:
-								wstrcpy_char (&PacketData[Packet11_Length], "HUcast");
-								break;
-							case CLASS_HUCASEAL:
-								wstrcpy_char (&PacketData[Packet11_Length], "HUcaseal");
-								break;
-							case CLASS_RAMAR:
-								wstrcpy_char (&PacketData[Packet11_Length], "RAmar");
-								break;
-							case CLASS_RACAST:
-								wstrcpy_char (&PacketData[Packet11_Length], "RAcast");
-								break;
-							case CLASS_RACASEAL:
-								wstrcpy_char (&PacketData[Packet11_Length], "RAcaseal");
-								break;
-							case CLASS_RAMARL:
-								wstrcpy_char (&PacketData[Packet11_Length], "RAmarl");
-								break;
-							case CLASS_FONEWM:
-								wstrcpy_char (&PacketData[Packet11_Length], "FOnewm");
-								break;
-							case CLASS_FONEWEARL:
-								wstrcpy_char (&PacketData[Packet11_Length], "FOnewearl");
-								break;
-							case CLASS_FOMARL:
-								wstrcpy_char (&PacketData[Packet11_Length], "FOmarl");
-								break;
-							case CLASS_FOMAR:
-								wstrcpy_char (&PacketData[Packet11_Length], "FOmar");
-								break;
-							default:
-								wstrcpy_char (&PacketData[Packet11_Length], "Unknown");
-								break;
-							}
-							Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);
-							PacketData[Packet11_Length++] = 0x20;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x20;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x20;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x20;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x4A;
-							PacketData[Packet11_Length++] = 0x00;
-							PacketData[Packet11_Length++] = 0x0A;
-							PacketData[Packet11_Length++] = 0x00;
-						}
-				}
-				else
-				{
-					client->team_info_request = lobbyNum;
-					client->team_info_flag = 0;
-					wstrcpy_char (&PacketData[Packet11_Length], "Time : ");
-					Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);
-					num_minutes  = ((unsigned) servertime - l->start_time ) / 60L;
-					num_hours    = num_minutes / 60L;
-					num_minutes %= 60;
-					_itoa (num_hours,&lb[0], 10);
-					wstrcpy_char (&PacketData[Packet11_Length], &lb[0]);
-					Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);
-					PacketData[Packet11_Length++] = 0x3A;
-					PacketData[Packet11_Length++] = 0x00;
-					_itoa (num_minutes,&lb[0], 10);
-					if (num_minutes < 10)
-					{
-						lb[1] = lb[0];
-						lb[0] = 0x30;
-						lb[2] = 0x00;
-					}
-					wstrcpy_char (&PacketData[Packet11_Length], &lb[0]);
-					Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);					
-					PacketData[Packet11_Length++] = 0x0A;
-					PacketData[Packet11_Length++] = 0x00;
-					if (l->quest_loaded)
-					{
-						wstrcpy_char (&PacketData[Packet11_Length], "Quest : ");
-						Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);
-						PacketData[Packet11_Length++] = 0x0A;
-						PacketData[Packet11_Length++] = 0x00;
-						PacketData[Packet11_Length++] = 0x20;
-						PacketData[Packet11_Length++] = 0x00;
-						PacketData[Packet11_Length++] = 0x20;
-						PacketData[Packet11_Length++] = 0x00;
-						q = &quests[l->quest_loaded - 1];
-						if ((client->character.lang < 10) && (q->ql[client->character.lang]))
-							wstrcpy((unsigned short*) &PacketData[Packet11_Length], (unsigned short*) &q->ql[client->character.lang]->qname[0]);
-						else
-							wstrcpy((unsigned short*) &PacketData[Packet11_Length], (unsigned short*) &q->ql[0]->qname[0]);
-						Packet11_Length += wstrlen ((unsigned short*) &PacketData[Packet11_Length]);
-					}
-				}
-			}
-			else
-			{
-				wstrcpy_char (&PacketData[0x10], "Game no longer active.");
-				Packet11_Length = 0x10 + (strlen ("Game no longer active.") * 2);
-			}
-			PacketData[Packet11_Length++] = 0x00;
-			PacketData[Packet11_Length++] = 0x00;
-			*(unsigned short*) &PacketData[0x00] = (unsigned short) Packet11_Length;
-			cipher_ptr = &client->server_cipher;
-			encryptcopy (client, &PacketData[0], Packet11_Length );
-		}
-		break;
-	case 0x0F:
-		// Quest info
-		if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0B] <= numQuests ) )
-		{
-			q = &quests[client->decryptbuf[0x0B] - 1];
-			memset (&PacketData[0x00], 0, 8);
-			PacketData[0x00] = 0x48;
-			PacketData[0x01] = 0x02;
-			PacketData[0x02] = 0xA3;
-			if ((client->character.lang < 10) && (q->ql[client->character.lang]))
-				memcpy (&PacketData[0x08], &q->ql[client->character.lang]->qdetails[0], 0x200 );
-			else
-				memcpy (&PacketData[0x08], &q->ql[0]->qdetails[0], 0x200 );
-			cipher_ptr = &client->server_cipher;
-			encryptcopy (client, &PacketData[0], 0x248 );
-		}
-		break;
-	default:
-		break;
-	}
-}
-
-void Command10(unsigned blockServer, PSO_CLIENT* client)
-{
-	unsigned char select_type, selected;
-	unsigned full_select, ch, ch2, failed_to_join, lobbyNum, password_match, oldIndex;
-	LOBBY* l;
-	unsigned short* p;
-	unsigned short* c;
-	unsigned short fqs, barule;
-	unsigned qm_length, qa, nr;
-	unsigned char* qmap;
-	QUEST* q;
-	char quest_num[16];
-	unsigned qn;
-	int do_quest;
-	unsigned quest_flag;
-
-	if (client->guildcard)
-	{
-		select_type = (unsigned char) client->decryptbuf[0x0F];
-		selected = (unsigned char) client->decryptbuf[0x0C];
-		full_select = *(unsigned *) &client->decryptbuf[0x0C];
-
-		switch (select_type)
-		{
-		case 0x00:
-			if ( ( blockServer ) && ( client->lobbyNum < 0x10 ) )
-			{
-				// Team
-
-				if ((!client->block) || (client->block > serverBlocks))
-				{
-					initialize_connection (client);
-					return;
-				}
-
-				lobbyNum = *(unsigned *) &client->decryptbuf[0x0C];
-
-				if ((lobbyNum < 0x10) || (lobbyNum >= 16+SHIP_COMPILED_MAX_GAMES))
-				{
-					initialize_connection (client);
-					return;
-				}
-
-				failed_to_join = 0;
-				l = &blocks[client->block - 1]->lobbies[lobbyNum];
-
-				if ((!client->isgm) && (!isLocalGM(client->guildcard)))
-				{
-					switch (l->episode)
-					{
-					case 0x01:
-						if ((l->difficulty == 0x01) && (client->character.level < 19))
-						{
-							Send01 ("Episode I\n\nYou must be level\n20 or higher\nto play on the\nhard difficulty.", client);
-							failed_to_join = 1;
-						}
-						else
-							if ((l->difficulty == 0x02) && (client->character.level < 49))
-							{
-								Send01 ("Episode I\n\nYou must be level\n50 or higher\nto play on the\nvery hard\ndifficulty.", client);
-								failed_to_join = 1;
-							}
-							else
-								if ((l->difficulty == 0x03) && (client->character.level < 89))
-								{
-									Send01 ("Episode I\n\nYou must be level\n90 or higher\nto play on the\nultimate\ndifficulty.", client);
-									failed_to_join = 1;
-								}
-								break;
-					case 0x02:
-						if ((l->difficulty == 0x01) && (client->character.level < 29))
-						{
-							Send01 ("Episode II\n\nYou must be level\n30 or higher\nto play on the\nhard difficulty.", client);
-							failed_to_join = 1;
-						}
-						else
-							if ((l->difficulty == 0x02) && (client->character.level < 59))
-							{
-								Send01 ("Episode II\n\nYou must be level\n60 or higher\nto play on the\nvery hard\ndifficulty.", client);
-								failed_to_join = 1;
-							}
-							else
-								if ((l->difficulty == 0x03) && (client->character.level < 99))
-								{
-									Send01 ("Episode II\n\nYou must be level\n100 or higher\nto play on the\nultimate\ndifficulty.", client);
-									failed_to_join = 1;
-								}
-								break;
-					case 0x03:
-						if ((l->difficulty == 0x01) && (client->character.level < 39))
-						{
-							Send01 ("Episode IV\n\nYou must be level\n40 or higher\nto play on the\nhard difficulty.", client);
-							failed_to_join = 1;
-						}
-						else
-							if ((l->difficulty == 0x02) && (client->character.level < 69))
-							{
-								Send01 ("Episode IV\n\nYou must be level\n70 or higher\nto play on the\nvery hard\ndifficulty.", client);
-								failed_to_join = 1;
-							}
-							else
-								if ((l->difficulty == 0x03) && (client->character.level < 109))
-								{
-									Send01 ("Episode IV\n\nYou must be level\n110 or higher\nto play on the\nultimate\ndifficulty.", client);
-									failed_to_join = 1;
-								}
-								break;
-					}
-				}
-
-
-				if ((!l->in_use) && (!failed_to_join))
-				{
-					Send01 ("Game no longer active.", client);
-					failed_to_join = 1;
-				}
-
-				if ((l->lobbyCount == 4)  && (!failed_to_join))
-				{
-					Send01 ("Game is full", client);
-					failed_to_join = 1;
-				}
-
-				if ((l->quest_in_progress) && (!failed_to_join))
-				{
-					Send01 ("Quest already in progress.", client);
-					failed_to_join = 1;
-				}
-
-				if ((l->oneperson) && (!failed_to_join))
-				{
-					Send01 ("Cannot join a one\nperson game.", client);
-					failed_to_join = 1;
-				}
-
-				if (((l->gamePassword[0x00] != 0x00) || (l->gamePassword[0x01] != 0x00)) &&
-					(!failed_to_join))
-				{
-					password_match = 1;
-					p = (unsigned short*) &l->gamePassword[0x00];
-					c = (unsigned short*) &client->decryptbuf[0x10];
-					while (*p != 0x00)
-					{
-						if (*p != *c)
-							password_match = 0;
-						p++;
-						c++;
-					}
-					if ((password_match == 0) && (client->isgm == 0) && (isLocalGM(client->guildcard) == 0))
-					{
-						Send01 ("Incorrect password.", client);
-						failed_to_join = 1;
-					}
-				}
-
-				if (!failed_to_join)
-				{
-					for (ch=0;ch<4;ch++)
-					{
-						if ((l->slot_use[ch]) && (l->client[ch]))
-						{
-							if (l->client[ch]->bursting == 1)
-							{
-								Send01 ("Player is bursting.\nPlease wait a\nmoment.", client);
-								failed_to_join = 1;
-							}
-							else
-								if ((l->inpquest) && (!l->client[ch]->hasquest))
-								{
-									Send01 ("Player is loading\nquest.\nPlease wait a\nmoment.", client);
-									failed_to_join = 1;
-								}
-						}
-					}
-				}
-
-				if ((l->inpquest) && (!failed_to_join))
-				{
-					// Check if player qualifies to join Government quest...
-					q = &quests[l->quest_loaded - 1];
-					memcpy (&dp[0], &q->ql[0]->qdata[0x31], 3);
-					dp[4] = 0;
-					qn = (unsigned) atoi ( &dp[0] );
-					switch (l->episode)
-					{
-					case 0x01:
-						qn -= 401;
-						qn <<= 1;
-						qn += 0x1F3;
-						for (ch2=0x1F5;ch2<=qn;ch2+=2)
-							if (!qflag(&client->character.quest_data1[0], ch2, l->difficulty))
-								failed_to_join = 1;
-						break;
-					case 0x02:
-						qn -= 451;
-						qn <<= 1;
-						qn += 0x211;
-						for (ch2=0x213;ch2<=qn;ch2+=2)
-							if (!qflag(&client->character.quest_data1[0], ch2, l->difficulty))
-								failed_to_join = 1;
-						break;
-					case 0x03:
-						qn -= 701;
-						qn += 0x2BC;
-						for (ch2=0x2BD;ch2<=qn;ch2++)
-							if (!qflag(&client->character.quest_data1[0], ch2, l->difficulty))
-								failed_to_join = 1;
-						break;
-					}
-					if (failed_to_join)
-					{
-						if ((client->isgm == 0) && (isLocalGM(client->guildcard) == 0))
-							Send01 ("You must progress\nfurther in the\ngame before you\ncan join this\nquest.", client);
-						else
-							failed_to_join = 0;
-					}
-				}
-
-				if (failed_to_join == 0)
-				{
-					removeClientFromLobby (client);
-					client->lobbyNum = lobbyNum + 1;
-					client->lobby = (void*) l;
-					Send64 (client);
-					memset (&client->encryptbuf[0x00], 0, 0x0C);
-					client->encryptbuf[0x00] = 0x0C;
-					client->encryptbuf[0x02] = 0x60;
-					client->encryptbuf[0x08] = 0xDD;
-					client->encryptbuf[0x09] = 0x03;
-					client->encryptbuf[0x0A] = (unsigned char) experience_rate;
-					cipher_ptr = &client->server_cipher;
-					encryptcopy (client, &client->encryptbuf[0x00], 0x0C);
-					UpdateGameItem (client);
-				}
-			}
-			break;
-		case 0x0F:
-			// Quest selection
-			if ( ( blockServer ) && ( client->lobbyNum > 0x0F ) )
-			{
-				if (!client->lobby)
-					break;
-
-				l = (LOBBY*) client->lobby;
-
-				if ( client->decryptbuf[0x0B] == 0 )
-				{
-					if ( client->decryptbuf[0x0C] < 11 )
-						SendA2 ( l->episode, l->oneperson, client->decryptbuf[0x0C], client->decryptbuf[0x0A], client );
-				}
-				else
-				{
-					if ( l->leader == client->clientID )
-					{
-						if ( l->quest_loaded == 0 )
-						{
-							if ( client->decryptbuf[0x0B] <= numQuests )
-							{
-								q = &quests[client->decryptbuf[0x0B] - 1];
-
-								do_quest = 1;
-
-								// Check "One-Person" quest ability to repeat...
-
-								if ( ( l->oneperson ) && ( l->episode == 0x01 ) )
-								{
-									memcpy (&quest_num[0], &q->ql[0]->qdata[49], 3);
-									quest_num[4] = 0;
-									qn = atoi (&quest_num[0]);
-									quest_flag = 0x63 + (qn << 1);
-									if (qflag(&client->character.quest_data1[0], quest_flag, l->difficulty))
-									{
-										if (!qflag_ep1solo(&client->character.quest_data1[0], l->difficulty))
-											do_quest = 0;
-									}
-									if ( !do_quest )
-										Send01 ("Please clear\nthe remaining\nquests before\nredoing this one.", client);
-								}
-
-								// Check party Government quest qualification.  (Teamwork?!)
-
-								if ( client->decryptbuf[0x0A] )
-								{
-									memcpy (&dp[0], &q->ql[0]->qdata[0x31], 3);
-									dp[4] = 0;
-									qn = (unsigned) atoi ( &dp[0] );
-									switch (l->episode)
-									{
-									case 0x01:
-										qn -= 401;
-										qn <<= 1;
-										qn += 0x1F3;
-										for (ch2=0x1F5;ch2<=qn;ch2+=2)
-											for (ch=0;ch<4;ch++)
-												if ((l->client[ch]) && (!qflag(&l->client[ch]->character.quest_data1[0], ch2, l->difficulty)))
-													do_quest = 0;
-										break;
-									case 0x02:
-										qn -= 451;
-										qn <<= 1;
-										qn += 0x211;
-										for (ch2=0x213;ch2<=qn;ch2+=2)
-											for (ch=0;ch<4;ch++)
-												if ((l->client[ch]) && (!qflag(&l->client[ch]->character.quest_data1[0], ch2, l->difficulty)))
-													do_quest = 0;
-										break;
-									case 0x03:
-										qn -= 701;
-										qn += 0x2BC;
-										for (ch2=0x2BD;ch2<=qn;ch2++)
-											for (ch=0;ch<4;ch++)
-												if ((l->client[ch]) && (!qflag(&l->client[ch]->character.quest_data1[0], ch2, l->difficulty)))
-													do_quest = 0;
-										break;
-									}
-									if (!do_quest)
-										Send01 ("The party no longer\nqualifies to\nstart this quest.", client);
-								}
-
-								if ( do_quest )
-								{
-									ch2 = 0;
-									barule = 0;
-
-									while (q->ql[0]->qname[ch2] != 0x00)
-									{
-										// Search for a number in the quest name to determine battle rule #
-										if ((q->ql[0]->qname[ch2] >= 0x31) && (q->ql[0]->qname[ch2] <= 0x38))
-										{
-											barule = q->ql[0]->qname[ch2];
-											break;
-										}
-										ch2++;
-									}
-
-									for (ch=0;ch<4;ch++)
-										if ((l->slot_use[ch]) && (l->client[ch]))
-										{
-											if ((l->battle) || (l->challenge))
-											{
-												// Copy character to backup buffer.
-												if (l->client[ch]->character_backup)
-													free (l->client[ch]->character_backup);
-												l->client[ch]->character_backup = malloc (sizeof (l->client[ch]->character));
-												memcpy ( l->client[ch]->character_backup, &l->client[ch]->character, sizeof (l->client[ch]->character));
-
-												l->battle_level = 0;
-
-												switch ( barule )
-												{
-												case 0x31:
-													// Rule #1
-													l->client[ch]->mode = 1;
-													break;
-												case 0x32:
-													// Rule #2
-													l->battle_level = 1;
-													l->client[ch]->mode = 3;
-													break;
-												case 0x33:
-													// Rule #3
-													l->battle_level = 5;
-													l->client[ch]->mode = 3;
-													break;
-												case 0x34:
-													// Rule #4
-													l->battle_level = 2;
-													l->client[ch]->mode = 3;
-													l->meseta_boost = 1;
-													break;
-												case 0x35:
-													// Rule #5
-													l->client[ch]->mode = 2;
-													l->meseta_boost = 1;
-													break;
-												case 0x36:
-													// Rule #6
-													l->battle_level = 20;
-													l->client[ch]->mode = 3;
-													break;
-												case 0x37:
-													// Rule #7
-													l->battle_level = 1;
-													l->client[ch]->mode = 3;
-													break;
-												case 0x38:
-													// Rule #8
-													l->battle_level = 20;
-													l->client[ch]->mode = 3;
-													break;
-												default:
-													write_log ("Unknown battle rule loaded...");
-													l->client[ch]->mode = 1;
-													break;
-												}
-
-												switch (l->client[ch]->mode)
-												{
-												case 0x02:
-													// Delete all mags and meseta...
-													for (ch2=0;ch2<l->client[ch]->character.inventoryUse;ch2++)
-													{
-														if (l->client[ch]->character.inventory[ch2].item.data[0] == 0x02)
-															l->client[ch]->character.inventory[ch2].in_use = 0;
-													}
-													CleanUpInventory (l->client[ch]);
-													l->client[ch]->character.meseta = 0;
-													break;
-												case 0x03:
-													// Wipe items and reset level.
-													for (ch2=0;ch2<30;ch2++)
-														l->client[ch]->character.inventory[ch2].in_use = 0;
-													CleanUpInventory (l->client[ch]);
-													l->client[ch]->character.level = 0;
-													l->client[ch]->character.XP = 0;
-													l->client[ch]->character.ATP = *(unsigned short*) &startingData[(l->client[ch]->character._class*14)];
-													l->client[ch]->character.MST = *(unsigned short*) &startingData[(l->client[ch]->character._class*14)+2];
-													l->client[ch]->character.EVP = *(unsigned short*) &startingData[(l->client[ch]->character._class*14)+4];
-													l->client[ch]->character.HP  = *(unsigned short*) &startingData[(l->client[ch]->character._class*14)+6];
-													l->client[ch]->character.DFP = *(unsigned short*) &startingData[(l->client[ch]->character._class*14)+8];
-													l->client[ch]->character.ATA = *(unsigned short*) &startingData[(l->client[ch]->character._class*14)+10];
-													if (l->battle_level > 1)
-														SkipToLevel (l->battle_level - 1, l->client[ch], 1);
-													l->client[ch]->character.meseta = 0;
-												}
-											}
-
-											if ((l->client[ch]->character.lang < 10) &&
-												(q->ql[l->client[ch]->character.lang]))
-											{
-												fqs = *(unsigned short*) &q->ql[l->client[ch]->character.lang]->qdata[0];
-												if (fqs % 8)
-													fqs += ( 8 - ( fqs % 8 ) );
-												cipher_ptr = &l->client[ch]->server_cipher;
-												encryptcopy (l->client[ch], &q->ql[l->client[ch]->character.lang]->qdata[0], fqs);
-											}
-											else
-											{
-												fqs = *(unsigned short*) &q->ql[0]->qdata[0];
-												if (fqs % 8)
-													fqs += ( 8 - ( fqs % 8 ) );
-												cipher_ptr = &l->client[ch]->server_cipher;
-												encryptcopy (l->client[ch], &q->ql[0]->qdata[0], fqs);
-											}
-											l->client[ch]->bursting = 1;
-											l->client[ch]->sending_quest = client->decryptbuf[0x0B] - 1;
-											l->client[ch]->qpos = fqs;
-										}
-										if (!client->decryptbuf[0x0A])
-											l->quest_in_progress = 1; // when a government quest, this won't be set
-										else
-											l->inpquest = 1;
-
-										l->quest_loaded = client->decryptbuf[0x0B];
-
-										// Time to load the map data...
-
-										memset ( &l->mapData[0], 0, 0xB50 * sizeof (MAP_MONSTER) ); // Erase!
-										l->mapIndex = 0;
-										l->rareIndex = 0;
-										for (ch=0;ch<0x20;ch++)
-											l->rareData[ch] = 0xFF;
-
-										qmap = q->mapdata;
-										qm_length = *(unsigned*) qmap;
-										qmap += 4;
-										ch = 4;
-										while ( ( qm_length - ch ) >= 80 )
-										{
-											oldIndex = l->mapIndex;
-											qa = *(unsigned*) qmap; // Area
-											qmap += 4;
-											nr = *(unsigned*) qmap; // Number of monsters
-											qmap += 4;
-											if ( ( l->episode == 0x03 ) && ( qa > 5 ) )
-												parse_map_data ( l, (MAP_MONSTER*) qmap, 1, nr );
-											else
-												if ( ( l->episode == 0x02 ) && ( qa > 15 ) )
-													parse_map_data ( l, (MAP_MONSTER*) qmap, 1, nr );
-												else
-													parse_map_data ( l, (MAP_MONSTER*) qmap, 0, nr );
-											qmap += ( nr * 72 );
-											ch += ( ( nr * 72 ) + 8 );
-											//debug ("loaded quest area %u, mid count %u, total mids: %u", qa, l->mapIndex - oldIndex, l->mapIndex);
-										}
-								}
-							}
-						}
-						else
-							Send01 ("Quest already loaded.", client);
-					}
-					else
-						Send01 ("Only the leader of a team can start quests.", client);
-				}
-			}
-			break;
-		case 0xEF:
-			if ( client->lobbyNum < 0x10 )
-			{
-				// Blocks
-
-				unsigned blockNum;
-
-				blockNum = 0x100 - selected;
-
-				if (blockNum <= serverBlocks)
-				{
-					if ( blocks[blockNum - 1]->count < 180 )
-					{
-						if ((client->lobbyNum) && (client->lobbyNum < 0x10))
-						{
-							for (ch=0;ch<MAX_SAVED_LOBBIES;ch++)
-							{
-								if (savedlobbies[ch].guildcard == 0)
-								{
-									savedlobbies[ch].guildcard = client->guildcard;
-									savedlobbies[ch].lobby = client->lobbyNum;
-									break;
-								}
-							}
-						}
-
-						if (client->gotchardata)
-						{
-							client->character.playTime += (unsigned) servertime - client->connected; 
-							ShipSend04 (0x02, client, logon);
-							client->gotchardata = 0;
-							client->released = 1;
-							*(unsigned *) &client->releaseIP[0] = *(unsigned *) &serverIP[0];
-							client->releasePort = serverPort + blockNum;
-						}
-						else
-							Send19 (serverIP[0], serverIP[1], serverIP[2], serverIP[3],
-							serverPort + blockNum, client);
-					}
-					else
-					{
-						Send01 ("Block is full.", client);
-						Send07 (client);
-					}
-				}
-			}
-			break;
-		case 0xFF:
-			if ( client->lobbyNum < 0x10 )
-			{
-				// Ship select
-				if ( selected == 0x00 )
-					ShipSend0D (0x00, client, logon);
-				else
-					// Ships
-					for (ch=0;ch<totalShips;ch++)
-					{
-						if (full_select == shipdata[ch].shipID)
-						{
-							if (client->gotchardata)
-							{
-								client->character.playTime += (unsigned) servertime - client->connected;
-								ShipSend04 (0x02, client, logon);
-								client->gotchardata = 0;
-								client->released = 1;
-								*(unsigned *) &client->releaseIP[0] = *(unsigned*) &shipdata[ch].ipaddr[0];
-								client->releasePort = shipdata[ch].port;
-							}
-							else
-								Send19 (shipdata[ch].ipaddr[0], shipdata[ch].ipaddr[1], 
-								shipdata[ch].ipaddr[2], shipdata[ch].ipaddr[3],
-								shipdata[ch].port, client);
-
-							break;
-						}
-					}
-			}
-			break;
-		default:
-			break;
-		}
-	}
-}
-
-void CommandD9 (PSO_CLIENT* client)
-{
-	unsigned short *n;
-	unsigned short *g;
-	unsigned short s = 2;
-
-
-	// Client writing to info board
-
-	n = (unsigned short*) &client->decryptbuf[0x0A];
-	g = (unsigned short*) &client->character.GCBoard[0];
-
-	*(g++) = 0x0009;
-
-	while ((*n != 0x0000) && (s < 85))
-	{
-		if ((*n == 0x0009) || (*n == 0x000A))
-			*(g++) = 0x0020;
-		else
-			*(g++) = *n;
-		n++;
-		s++;
-	}
-	// null terminate
-	*(g++) = 0x0000;
-}
-
-void CommandE8 (PSO_CLIENT* client)
-{
-	unsigned gcn;
-
-
-	switch (client->decryptbuf[0x03])
-	{
-	case 0x04:
-		{
-			// Accepting sent guild card
-			LOBBY* l;
-			PSO_CLIENT* lClient;
-			unsigned ch, maxch;
-
-			if (!client->lobby)
-				break;
-
-			l = (LOBBY*) client->lobby;
-			gcn = *(unsigned*) &client->decryptbuf[0x08];
-			if ( client->lobbyNum < 0x10 )
-				maxch = 12;
-			else
-				maxch = 4;
-			for (ch=0;ch<maxch;ch++)
-			{
-				if ((l->client[ch]) && (l->client[ch]->character.guildCard == gcn))
-				{
-					lClient = l->client[ch];
-					if (prepped_guildcard(lClient->guildcard,client->guildcard))
-					{
-						AddGuildCard (client->guildcard, gcn, &client->decryptbuf[0x0C], &client->decryptbuf[0x5C],
-							client->decryptbuf[0x10E], client->decryptbuf[0x10F], logon );
-					}
-					break;
-				}
-			}
-		}
-		break;
-	case 0x05:
-		// Deleting a guild card
-		gcn = *(unsigned*) &client->decryptbuf[0x08];
-		DeleteGuildCard (client->guildcard, gcn, logon);
-		break;
-	case 0x06:
-		// Setting guild card text
-		{
-			unsigned short *n;
-			unsigned short *g;
-			unsigned short s = 2;
-
-			// Client writing to info board
-
-			n = (unsigned short*) &client->decryptbuf[0x5E];
-			g = (unsigned short*) &client->character.guildcard_text[0];
-
-			*(g++) = 0x0009;
-
-			while ((*n != 0x0000) && (s < 85))
-			{
-				if ((*n == 0x0009) || (*n == 0x000A))
-					*(g++) = 0x0020;
-				else
-					*(g++) = *n;
-				n++;
-				s++;
-			}
-			// null terminate
-			*(g++) = 0x0000;
-		}
-		break;
-	case 0x07:
-		// Add blocked user
-		// User @ 0x08, Name of User @ 0x0C
-		break;
-	case 0x08:
-		// Remove blocked user
-		// User @ 0x08
-		break;
-	case 0x09:
-		// Write comment on user
-		// E8 09 writing a comment on a user...  not sure were comment goes in the DC packet... 
-		// User @ 0x08 comment @ 0x0C
-		gcn = *(unsigned*) &client->decryptbuf[0x08];
-		ModifyGuildCardComment (client->guildcard, gcn, (unsigned short*) &client->decryptbuf[0x0E], logon);
-		break;
-	case 0x0A:
-		// Sort guild card
-		// (Moves from one position to another)
-		SortGuildCard (client, logon);
-		break;
-	}
-}
-
-void CommandD8 (PSO_CLIENT* client)
-{
-	unsigned ch,maxch;
-	unsigned short D8Offset;
-	unsigned char totalClients = 0;
-	LOBBY* l;
-	PSO_CLIENT* lClient;
-
-	if (!client->lobby)
-		return;
-
-	memset (&PacketData[0], 0, 8);
-
-	PacketData[0x02] = 0xD8;
-	D8Offset = 8;
-
-	l = client->lobby;
-
-	if (client->lobbyNum < 0x10)
-		maxch = 12;
-	else
-		maxch = 4;
-
-	for (ch=0;ch<maxch;ch++)
-	{
-		if ((l->slot_use[ch]) && (l->client[ch]))
-		{
-			totalClients++;
-			lClient = l->client[ch];
-			memcpy (&PacketData[D8Offset], &lClient->character.name[4], 20 );
-			D8Offset += 0x20;
-			memcpy (&PacketData[D8Offset], &lClient->character.GCBoard[0], 172 );
-			D8Offset += 0x158;
-		}
-	}
-	PacketData[0x04] = totalClients;
-	*(unsigned short*) &PacketData[0x00] = (unsigned short) D8Offset;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketData[0], D8Offset);
-}
-
-void Command81 (PSO_CLIENT* client, PSO_SERVER* ship)
-{
-	unsigned short* n;
-
-	ship->encryptbuf[0x00] = 0x08;
-	ship->encryptbuf[0x01] = 0x03;
-	memcpy (&ship->encryptbuf[0x02], &client->decryptbuf[0x00], 0x45C);
-	*(unsigned*) &ship->encryptbuf[0x0E] = client->guildcard;
-	memcpy (&ship->encryptbuf[0x12], &client->character.name[0], 24);
-	n = (unsigned short*) &ship->encryptbuf[0x62];
-	while (*n != 0x0000)
-	{
-		if ((*n == 0x0009) || (*n == 0x000A))
-			*n = 0x0020;
-		n++;
-	}
-	*n = 0x0000;
-	*(unsigned*) &ship->encryptbuf[0x45E] = client->character.teamID;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x462 );
-}
-
-void CommandEA (PSO_CLIENT* client, PSO_SERVER* ship)
-{
-	unsigned connectNum;
-
-	if ((client->decryptbuf[0x03] < 32) && ((unsigned) servertime - client->team_cooldown[client->decryptbuf[0x03]] >= 1))
-	{
-		client->team_cooldown[client->decryptbuf[0x03]] = (unsigned) servertime;
-		switch (client->decryptbuf[0x03])
-		{
-		case 0x01:
-			// Create team
-			if (client->character.teamID == 0)
-				CreateTeam ((unsigned short*) &client->decryptbuf[0x0C], client->guildcard, ship);
-			break;
-		case 0x03:
-			// Add a team member
-			{
-				PSO_CLIENT* tClient;
-				unsigned gcn, ch;
-
-				if ((client->character.teamID != 0) && (client->character.privilegeLevel >= 0x30))
-				{
-					gcn = *(unsigned*) &client->decryptbuf[0x08];
-					for (ch=0;ch<serverNumConnections;ch++)
-					{
-						connectNum = serverConnectionList[ch];
-						if (connections[connectNum]->guildcard == gcn)
-						{
-							if ( ( connections[connectNum]->character.teamID == 0 ) && ( connections[connectNum]->teamaccept == 1 ) )
-							{
-								AddTeamMember ( client->character.teamID, gcn, ship );
-								tClient = connections[connectNum];
-								tClient->teamaccept = 0;
-								memset ( &tClient->character.guildCard2, 0, 2108 );
-								tClient->character.teamID = client->character.teamID;
-								tClient->character.privilegeLevel = 0;
-								tClient->character.unknown15 = client->character.unknown15;
-								memcpy ( &tClient->character.teamName[0], &client->character.teamName[0], 28 );
-								memcpy ( &tClient->character.teamFlag[0], &client->character.teamFlag[0], 2048 );
-								*(long long*) &tClient->character.teamRewards[0] = *(long long*) &client->character.teamRewards[0];
-								if ( tClient->lobbyNum < 0x10 )
-									SendToLobby ( tClient->lobby, 12, MakePacketEA15 ( tClient ), 2152, 0 );
-								else
-									SendToLobby ( tClient->lobby, 4, MakePacketEA15 ( tClient ), 2152, 0 );
-								SendEA ( 0x12, tClient );
-								SendEA ( 0x04, client );
-								SendEA ( 0x04, tClient );
-								break;
-							}
-							else
-								Send01 ("Player already\nbelongs to a team!", client);
-						}
-					}
-				}
-			}
-			break;
-		case 0x05:
-			// Remove member from team
-			if (client->character.teamID != 0)
-			{
-				unsigned gcn,ch;
-				PSO_CLIENT* tClient;
-
-				gcn = *(unsigned*) &client->decryptbuf[0x08];
-
-				if (gcn != client->guildcard)
-				{
-					if (client->character.privilegeLevel == 0x40)
-					{
-						RemoveTeamMember (client->character.teamID, gcn, ship);
-						SendEA ( 0x06, client );
-						for (ch=0;ch<serverNumConnections;ch++)
-						{
-							connectNum = serverConnectionList[ch];
-							if (connections[connectNum]->guildcard == gcn)
-							{
-								tClient = connections[connectNum];
-								if ( tClient->character.privilegeLevel < client->character.privilegeLevel )
-								{
-									memset (&tClient->character.guildCard2, 0, 2108);
-									memset (&client->encryptbuf[0x00], 0, 0x40);
-									client->encryptbuf[0x00] = 0x40;
-									client->encryptbuf[0x02] = 0xEA;
-									client->encryptbuf[0x03] = 0x12;
-									*(unsigned *) &client->encryptbuf[0x0C] = tClient->guildcard;
-									if ( tClient->lobbyNum < 0x10 )
-									{
-										SendToLobby ( tClient->lobby, 12, MakePacketEA15 ( tClient ), 2152, 0 );
-										SendToLobby ( tClient->lobby, 12, &client->encryptbuf[0x00], 0x40, 0 );
-									}
-									else
-									{
-										SendToLobby ( tClient->lobby, 4, MakePacketEA15 ( tClient ), 2152, 0 );
-										SendToLobby ( tClient->lobby, 4, &client->encryptbuf[0x00], 0x40, 0 );
-									}
-									Send01 ("Member removed.", client);
-								}
-								else
-									Send01 ("Your privilege level is\ntoo low.", client);
-								break;
-							}
-						}
-					}
-					else
-						Send01 ("Your privilege level is\ntoo low.", client);
-				}
-				else
-				{
-					RemoveTeamMember ( client->character.teamID, gcn, ship );
-					memset (&client->character.guildCard2, 0, 2108);
-					memset (&client->encryptbuf[0x00], 0, 0x40);
-					client->encryptbuf[0x00] = 0x40;
-					client->encryptbuf[0x02] = 0xEA;
-					client->encryptbuf[0x03] = 0x12;
-					*(unsigned *) &client->encryptbuf[0x0C] = client->guildcard;
-					if ( client->lobbyNum < 0x10 )
-					{
-						SendToLobby ( client->lobby, 12, MakePacketEA15 ( client ), 2152, 0 );
-						SendToLobby ( client->lobby, 12, &client->encryptbuf[0x00], 0x40, 0 );
-					}
-					else
-					{
-						SendToLobby ( client->lobby, 4, MakePacketEA15 ( client ), 2152, 0 );
-						SendToLobby ( client->lobby, 4, &client->encryptbuf[0x00], 0x40, 0 );
-					}
-				}
-			}
-			break;
-		case 0x07:
-			if (client->character.teamID != 0)
-			{
-				unsigned short size;
-				unsigned short *n;
-
-				size = *(unsigned short*) &client->decryptbuf[0x00];
-
-				if (size > 0x2B)
-				{
-					n = (unsigned short*) &client->decryptbuf[0x2C];
-					while (*n != 0x0000)
-					{
-						if ((*n == 0x0009) || (*n == 0x000A))
-							*n = 0x0020;
-						n++;
-					}
-					TeamChat ((unsigned short*) &client->decryptbuf[0x00], size, client->character.teamID, ship);
-				}
-			}
-			break;
-		case 0x08:
-			// Member Promotion / Demotion / Expulsion / Master Transfer
-			//
-			if (client->character.teamID != 0)
-				RequestTeamList (client->character.teamID, client->guildcard, ship);
-			break;
-		case 0x0D:
-			SendEA (0x0E, client);
-			break;
-		case 0x0F:
-			// Set flag
-			if ((client->character.privilegeLevel == 0x40) && (client->character.teamID != 0))
-				UpdateTeamFlag (&client->decryptbuf[0x08], client->character.teamID, ship);
-			break;
-		case 0x10:
-			// Dissolve team
-			if ((client->character.privilegeLevel == 0x40) && (client->character.teamID != 0))
-			{
-				DissolveTeam (client->character.teamID, ship);
-				SendEA ( 0x10, client );
-				memset ( &client->character.guildCard2, 0, 2108 );
-				SendToLobby ( client->lobby, 12, MakePacketEA15 ( client ), 2152, 0 );
-				SendEA ( 0x12, client );
-			}
-			break;
-		case 0x11:
-			// Promote member
-			if (client->character.teamID != 0)
-			{
-				unsigned gcn, ch;
-				PSO_CLIENT* tClient;
-
-				gcn = *(unsigned*) &client->decryptbuf[0x08];
-
-				if (gcn != client->guildcard)
-				{
-					if (client->character.privilegeLevel == 0x40)
-					{
-						PromoteTeamMember (client->character.teamID, gcn, client->decryptbuf[0x04], ship);
-
-						if (client->decryptbuf[0x04] == 0x40)
-						{
-							// Master Transfer
-							PromoteTeamMember (client->character.teamID, client->guildcard, 0x30, ship);
-							client->character.privilegeLevel = 0x30;
-							SendToLobby ( client->lobby, 12, MakePacketEA15 ( client ), 2152, 0 );
-						}
-
-						for (ch=0;ch<serverNumConnections;ch++)
-						{
-							connectNum = serverConnectionList[ch];
-							if (connections[connectNum]->guildcard == gcn)
-							{
-								tClient = connections[connectNum];
-								if (tClient->character.privilegeLevel != client->decryptbuf[0x04]) // only if changed
-								{
-									tClient->character.privilegeLevel = client->decryptbuf[0x04];
-									if ( tClient->lobbyNum < 0x10 )
-										SendToLobby ( tClient->lobby, 12, MakePacketEA15 ( tClient ), 2152, 0 );
-									else
-										SendToLobby ( tClient->lobby, 4, MakePacketEA15 ( tClient ), 2152, 0 );
-								}
-								SendEA ( 0x12, tClient );
-								SendEA ( 0x11, client );
-								break;
-							}
-						}
-					}
-				}
-			}
-			break;
-		case 0x13:
-			// A type of lobby list...
-			SendEA (0x13, client);
-			break;
-		case 0x14:
-			// Do nothing.
-			break;
-		case 0x18:
-			// Buying privileges and point information
-			SendEA (0x18, client);
-			break;
-		case 0x19:
-			// Privilege list
-			SendEA (0x19, client);
-			break;
-		case 0x1C:
-			// Ranking
-			Send1A ("Tethealla Ship Server coded by Sodaboy\nhttp://www.pioneer2.net/\n\nEnjoy!", client );
-			break;
-		case 0x1A:
-			SendEA (0x1A, client);
-			break;
-		default:
-			break;
-		}
-	}
 }
 
 void AddExp (unsigned int XP, PSO_CLIENT* client)
@@ -6136,7 +3421,6 @@ unsigned int AddToInventory (INVENTORY_ITEM* i, unsigned count, int shop, PSO_CL
 	return item_added;
 }
 
-
 void CleanUpInventory (PSO_CLIENT* client)
 {
 	unsigned ch, ch2 = 0;
@@ -6218,7 +3502,6 @@ void CleanUpBank (PSO_CLIENT* client)
 		client->character.bankInventory[ch] = bank_data[ch];
 
 }
-
 
 unsigned int AddItemToClient (unsigned itemid, PSO_CLIENT* client)
 {
@@ -6521,7 +3804,6 @@ void DeleteItemFromClient (unsigned itemid, unsigned count, unsigned drop, PSO_C
 
 }
 
-
 void GenerateRandomAttributes (unsigned char sid, GAME_ITEM* i, LOBBY* l, PSO_CLIENT* client)
 {
 	unsigned ch, num_percents, max_percent, meseta, do_area, r;
@@ -6762,2082 +4044,6 @@ void UpdateGameItem (PSO_CLIENT* client)
 		client->character.inventory[ch].item.itemid = l->playerItemID[client->clientID]++; // Keep synchronized
 }
 
-
-void Send62 (PSO_CLIENT* client)
-{
-	PSO_CLIENT* lClient;
-	unsigned bank_size, bank_use;
-	unsigned short size;
-	unsigned short sizecheck = 0;
-	unsigned char t,maxt;
-	unsigned itemid;
-	int dont_send = 1;
-	LOBBY* l;
-	unsigned rt_index = 0;
-	unsigned rare_lookup, rare_rate, rare_item, 
-		rare_roll, box_rare, ch, itemNum;
-	unsigned short mid, count;
-	unsigned char* rt_table;
-	unsigned char* rt_table2;
-	unsigned meseta;
-	unsigned DAR;
-	unsigned floor_check = 0;
-	SHOP* shopp;
-	SHOP_ITEM* shopi;
-	PTDATA* ptd;
-	MAP_BOX* mb;
-
-	if (!client->lobby)
-		return;
-
-	l = (LOBBY*) client->lobby;
-	// don't support target @ 0x02
-	t = client->decryptbuf[0x04];
-	if (client->lobbyNum < 0x10)
-		maxt = 12;
-	else
-		maxt = 4;
-
-	size = *(unsigned short*) &client->decryptbuf[0x00];
-	sizecheck = client->decryptbuf[0x09];
-
-	sizecheck *= 4;
-	sizecheck += 8;
-
-	if (size != sizecheck)
-	{
-		debug ("Client sent a 0x62 packet whose sizecheck != size.\n");
-		debug ("Command: %02X | Size: %04X | Sizecheck(%02x): %04x\n", client->decryptbuf[0x08],
-			size, client->decryptbuf[0x09], sizecheck);
-		client->decryptbuf[0x09] = ((size / 4) - 2);
-	}
-
-	switch (client->decryptbuf[0x08])
-	{
-	case 0x06:
-		// Send guild card
-		if ( ( size == 0x0C ) && ( t < maxt ) )
-		{
-			if ((l->slot_use[t]) && (l->client[t]))
-			{
-				lClient = l->client[t];
-				PrepGuildCard ( client->guildcard, lClient->guildcard );
-				memset (&PacketData[0], 0, 0x114);
-				sprintf (&PacketData[0x00], "\x14\x01\x60");
-				PacketData[0x03] = 0x00;
-				PacketData[0x04] = 0x00;
-				PacketData[0x08] = 0x06;
-				PacketData[0x09] = 0x43;
-				*(unsigned *) &PacketData[0x0C] = client->guildcard;
-				memcpy (&PacketData[0x10], &client->character.name[0], 24 );
-				memcpy (&PacketData[0x60], &client->character.guildcard_text[0], 176);
-				PacketData[0x110] = 0x01; // ?
-				PacketData[0x112] = (char)client->character.sectionID;
-				PacketData[0x113] = (char)client->character._class;
-				cipher_ptr = &lClient->server_cipher;
-				encryptcopy (lClient, &PacketData[0], 0x114);
-			}
-		}
-		break;
-	case 0x5A:
-		if ( client->lobbyNum > 0x0F )
-		{			
-			itemid = *(unsigned *) &client->decryptbuf[0x0C];
-			if ( AddItemToClient ( itemid, client ) == 1 )
-			{
-				memset (&PacketData[0], 0, 16);
-				PacketData[0x00] = 0x14;
-				PacketData[0x02] = 0x60;
-				PacketData[0x08] = 0x59;
-				PacketData[0x09] = 0x03;
-				PacketData[0x0A] = (unsigned char) client->clientID;
-				PacketData[0x0E] = client->decryptbuf[0x10];
-				PacketData[0x0C] = (unsigned char) client->clientID;
-				*(unsigned *) &PacketData[0x10] = itemid;
-				SendToLobby ( client->lobby, 4, &PacketData[0x00], 0x14, 0);
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0x60:
-		// Requesting a drop from a monster.
-		if ( client->lobbyNum > 0x0F ) 
-		{
-			if ( !l->drops_disabled )
-			{
-				mid = *(unsigned short*) &client->decryptbuf[0x0E];
-				mid &= 0xFFF;				
-
-				if ( ( mid < 0xB50 ) && ( l->monsterData[mid].drop == 0 ) )
-				{
-					if (l->episode == 0x02)
-						ptd = &pt_tables_ep2[client->character.sectionID][l->difficulty];
-					else
-						ptd = &pt_tables_ep1[client->character.sectionID][l->difficulty];
-
-					if ( ( l->episode == 0x01 ) && ( client->decryptbuf[0x0D] == 35 ) &&
-						 ( l->mapData[mid].rt_index == 34 ) )
-						rt_index = 35; // Save Death Gunner index...
-					else
-						rt_index = l->mapData[mid].rt_index; // Use map's index instead of what the client says...
-
-					if ( rt_index < 0x64 )
-					{
-						if ( l->episode == 0x03 )
-						{
-							if ( rt_index < 0x16 )
-							{
-								meseta = ep4_rtremap[(rt_index * 2)+1];
-								// Past a certain point is Episode II data...
-								if ( meseta > 0x2F )
-									ptd = &pt_tables_ep2[client->character.sectionID][l->difficulty];
-							}
-							else
-								meseta = 0;
-						}
-						else
-							meseta = rt_index;
-						if ( ( l->episode == 0x03 ) && 
-							 ( rt_index >= 19 ) && 
-							 ( rt_index <= 21 ) )
-							DAR = 1;
-						else
-						{
-							if ( ( ptd->enemy_dar[meseta] == 100 ) || ( l->redbox ) )
-								DAR = 1;
-							else
-							{
-
-								DAR = 100 - ptd->enemy_dar[meseta];
-								if ( ( mt_lrand() % 100 ) >= DAR )
-									DAR = 1;
-								else
-									DAR = 0;
-							}
-						}
-					}
-					else
-						DAR = 0;
-
-					if ( DAR )
-					{
-						if (rt_index < 0x64)
-						{
-							rt_index += ((0x1400 * l->difficulty) + ( client->character.sectionID * 0x200 ));
-							switch (l->episode)
-							{
-							case 0x02:
-								rare_lookup = rt_tables_ep2[rt_index];
-								break;
-							case 0x03:
-								rare_lookup = rt_tables_ep4[rt_index];
-								break;
-							default:
-								rare_lookup = rt_tables_ep1[rt_index];
-								break;
-							}
-							rare_rate = ExpandDropRate ( rare_lookup & 0xFF );
-							rare_item = rare_lookup >> 8;
-							rare_roll = mt_lrand();
-							//debug ("rare_roll = %u", rare_roll );
-							if  ( ( ( rare_lookup & 0xFF ) != 0 ) && ( ( rare_roll < rare_rate ) || ( l->redbox ) ) )
-							{
-								// Drop a rare item
-								itemNum = free_game_item (l);
-								memset (&l->gameItem[itemNum].item.data[0], 0, 12);
-								memset (&l->gameItem[itemNum].item.data2[0], 0, 4);
-								memcpy (&l->gameItem[itemNum].item.data[0], &rare_item, 3);
-								GenerateRandomAttributes (client->character.sectionID, &l->gameItem[itemNum], l, client);
-								l->gameItem[itemNum].item.itemid = l->itemID++;
-							}
-							else
-							{
-								// Drop a common item
-								itemNum = free_game_item (l);
-								if ( ( ( mt_lrand() % 100 ) < 60 ) || ( ptd->enemy_drop < 0 ) )
-								{
-									memset (&l->gameItem[itemNum].item.data[0], 0, 12 );
-									memset (&l->gameItem[itemNum].item.data2[0], 0, 4 );
-									l->gameItem[itemNum].item.data[0] = 0x04;
-									rt_index = meseta;
-									meseta  = ptd->enemy_meseta[rt_index][0];
-									if ( ptd->enemy_meseta[rt_index][1] > ptd->enemy_meseta[rt_index][0] )
-										meseta += mt_lrand() % ( ( ptd->enemy_meseta[rt_index][1] - ptd->enemy_meseta[rt_index][0] ) + 1 );
-									*(unsigned *) &l->gameItem[itemNum].item.data2[0] = meseta;
-									l->gameItem[itemNum].item.itemid = l->itemID++;
-								}
-								else
-								{
-									rt_index = meseta;
-									GenerateCommonItem (ptd->enemy_drop[rt_index], 1, client->character.sectionID, &l->gameItem[itemNum], l, client);
-								}
-							}
-
-							if ( l->gameItem[itemNum].item.itemid != 0 )
-							{
-								if (l->gameItemCount < MAX_SAVED_ITEMS)
-									l->gameItemList[l->gameItemCount++] = itemNum;
-								memset (&PacketData[0x00], 0, 16);
-								PacketData[0x00] = 0x30;
-								PacketData[0x01] = 0x00;
-								PacketData[0x02] = 0x60;
-								PacketData[0x03] = 0x00;
-								PacketData[0x08] = 0x5F;
-								PacketData[0x09] = 0x0D;
-								*(unsigned *) &PacketData[0x0C] = *(unsigned *) &client->decryptbuf[0x0C];
-								memcpy (&PacketData[0x10], &client->decryptbuf[0x10], 10);
-								memcpy (&PacketData[0x1C], &l->gameItem[itemNum].item.data[0], 12 );
-								*(unsigned *) &PacketData[0x28] = l->gameItem[itemNum].item.itemid;
-								*(unsigned *) &PacketData[0x2C] = *(unsigned *) &l->gameItem[itemNum].item.data2[0];
-								SendToLobby ( client->lobby, 4, &PacketData[0], 0x30, 0);
-							}
-						}
-					}
-					l->monsterData[mid].drop = 1;
-				}
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0x6F:
-	case 0x71:
-		if ( ( client->lobbyNum > 0x0F ) && ( t < maxt ) )
-		{
-			if (l->leader == client->clientID)
-			{
-				if ((l->slot_use[t]) && (l->client[t]))
-				{
-					if (l->client[t]->bursting == 1)
-						dont_send = 0; // More user joining game stuff...
-				}
-			}
-		}
-		break;
-	case 0xA2:
-		if (client->lobbyNum > 0x0F)
-		{
-			if (!l->drops_disabled)
-			{
-				// box drop
-				mid = *(unsigned short*) &client->decryptbuf[0x0E];
-				mid &= 0xFFF;
-
-				if ( ( mid < 0xB50 ) && ( l->boxHit[mid] == 0 ) )
-				{
-					box_rare = 0;
-					mb = 0;
-					
-					//debug ("quest loaded: %i", l->quest_loaded);
-
-					if ( ( l->quest_loaded ) && ( (unsigned) l->quest_loaded <= numQuests ) )
-					{
-						QUEST* q;
-
-						q = &quests[l->quest_loaded - 1];
-						if ( mid < q->max_objects )
-							mb = (MAP_BOX*) &q->objectdata[(unsigned) ( 68 * mid ) + 0x28];
-					}
-					else
-						mb = &l->objData[mid];
-
-					if ( mb )
-					{
-
-						if ( mb->flag1 == 0 )
-						{
-							if ( ( ( mb->flag2 - FLOAT_PRECISION ) < (float) 1.00000 ) &&
-								 ( ( mb->flag2 + FLOAT_PRECISION ) > (float) 1.00000 ) )
-							{
-								// Fixed item alert!!!
-
-								box_rare = 1;
-								itemNum = free_game_item (l);
-								if ( ( ( mb->flag3 - FLOAT_PRECISION ) < (float) 1.00000 ) &&
-									 ( ( mb->flag3 + FLOAT_PRECISION ) > (float) 1.00000 ) )
-								{
-									// Fully fixed!
-
-									*(unsigned *) &l->gameItem[itemNum].item.data[0] = *(unsigned *) &mb->drop[0];
-
-									// Not used... for now.
-									l->gameItem[itemNum].item.data[3] = 0;
-
-									if (l->gameItem[itemNum].item.data[0] == 0x04)
-										GenerateCommonItem (0x04, 0, client->character.sectionID, &l->gameItem[itemNum], l, client);
-									else
-										if ((l->gameItem[itemNum].item.data[0] == 0x00) && 
-											(l->gameItem[itemNum].item.data[1] == 0x00))
-											GenerateCommonItem (0xFF, 0, client->character.sectionID, &l->gameItem[itemNum], l, client);
-										else
-										{
-											memset (&l->gameItem[itemNum].item.data2[0], 0, 4);
-											if (l->gameItem[itemNum].item.data[0] <  0x02)
-												l->gameItem[itemNum].item.data[1]++; // Fix item offset
-											GenerateRandomAttributes (client->character.sectionID, &l->gameItem[itemNum], l, client);
-											l->gameItem[itemNum].item.itemid = l->itemID++;
-										}
-								}
-								else
-									GenerateCommonItem (mb->drop[0], 0, client->character.sectionID, &l->gameItem[itemNum], l, client);
-							}
-						}
-					}
-
-					if (!box_rare)
-					{
-						switch (l->episode)
-						{
-						case 0x02:
-							rt_table = (unsigned char*) &rt_tables_ep2[0];
-							break;
-						case 0x03:
-							rt_table = (unsigned char*) &rt_tables_ep4[0];
-							break;
-						default:
-							rt_table = (unsigned char*) &rt_tables_ep1[0];
-							break;
-						}
-						rt_table += ( ( 0x5000 * l->difficulty ) + ( client->character.sectionID * 0x800 ) ) + 0x194;
-						rt_table2 = rt_table + 0x1E;
-						rare_item = 0;
-
-						switch ( l->episode )
-						{
-						case 0x01:
-							switch ( l->floor[client->clientID ] )
-							{
-							case 11:
-								// dragon
-								floor_check = 3;
-								break;
-							case 12:
-								// de rol
-								floor_check = 6;
-								break;
-							case 13:
-								// vol opt
-								floor_check = 8;
-								break;
-							case 14:
-								// falz
-								floor_check = 10;
-								break;
-							default:
-								floor_check = l->floor[client->clientID ];
-								break;
-							}	
-							break;
-						case 0x02:
-							switch ( l->floor[client->clientID ] )
-							{
-							case 14:
-								// barba ray
-								floor_check = 3;
-								break;
-							case 15:
-								// gol dragon
-								floor_check = 6;
-								break;
-							case 12:
-								// gal gryphon
-								floor_check = 9;
-								break;
-							case 13:
-								// olga flow
-								floor_check = 10;
-								break;
-							default:
-								// could be tower
-								if ( l->floor[client->clientID] <= 11 )
-									floor_check = ep2_rtremap[(l->floor[client->clientID] * 2)+1];
-								else
-									floor_check = 10;
-								break;
-							}	
-							break;
-						case 0x03:
-							floor_check = l->floor[client->clientID ];
-							break;
-						}
-
-						for (ch=0;ch<30;ch++)
-						{
-							if (*rt_table == floor_check)
-							{
-								rare_rate = ExpandDropRate ( *rt_table2 );
-								memcpy (&rare_item, &rt_table2[1], 3);
-								rare_roll = mt_lrand();
-								if ( ( rare_roll < rare_rate ) || ( l->redbox == 1 ) )
-								{
-									box_rare = 1;
-									itemNum = free_game_item (l);
-									memset (&l->gameItem[itemNum].item.data[0], 0, 12);
-									memset (&l->gameItem[itemNum].item.data2[0], 0, 4);
-									memcpy (&l->gameItem[itemNum].item.data[0], &rare_item, 3);
-									GenerateRandomAttributes (client->character.sectionID, &l->gameItem[itemNum], l, client);
-									l->gameItem[itemNum].item.itemid = l->itemID++;
-									break;
-								}
-							}
-							rt_table++;
-							rt_table2 += 0x04;
-						}
-					}
-
-					if (!box_rare)
-					{
-						itemNum = free_game_item (l);
-						GenerateCommonItem (0xFF, 0, client->character.sectionID, &l->gameItem[itemNum], l, client);
-					}
-
-					if (l->gameItem[itemNum].item.itemid != 0)
-					{
-						if (l->gameItemCount < MAX_SAVED_ITEMS)
-							l->gameItemList[l->gameItemCount++] = itemNum;
-						memset (&PacketData[0], 0, 16);
-						PacketData[0x00] = 0x30;
-						PacketData[0x01] = 0x00;
-						PacketData[0x02] = 0x60;
-						PacketData[0x03] = 0x00;
-						PacketData[0x08] = 0x5F;
-						PacketData[0x09] = 0x0D;
-						*(unsigned *) &PacketData[0x0C] = *(unsigned *) &client->decryptbuf[0x0C];
-						memcpy (&PacketData[0x10], &client->decryptbuf[0x10], 10);
-						memcpy (&PacketData[0x1C], &l->gameItem[itemNum].item.data[0], 12 );
-						*(unsigned *) &PacketData[0x28] = l->gameItem[itemNum].item.itemid;
-						*(unsigned *) &PacketData[0x2C] = *(unsigned *) &l->gameItem[itemNum].item.data2[0];
-						SendToLobby ( client->lobby, 4, &PacketData[0], 0x30, 0);
-					}
-					l->boxHit[mid] = 1;
-				}
-			}
-		}
-		break;
-	case 0xA6:
-		// Trade (not done yet)
-		break;
-	case 0xAE:
-		// Chair info
-		if ((size == 0x18) && (client->lobbyNum < 0x10) && (t < maxt))
-			dont_send = 0;
-		break;
-	case 0xB5:
-		// Client requesting shop
-		if ( client->lobbyNum > 0x0F )
-		{			 
-			if ((l->floor[client->clientID] == 0) 
-				&& (client->decryptbuf[0x0C] < 0x03))
-			{
-				client->doneshop[client->decryptbuf[0x0C]] = shopidx[client->character.level] + ( 333 * ((unsigned)client->decryptbuf[0x0C]) ) + ( mt_lrand() % 333 ) ;
-				shopp = &shops[client->doneshop[client->decryptbuf[0x0C]]];
-				cipher_ptr = &client->server_cipher;
-				encryptcopy (client, (unsigned char*) &shopp->packet_length, shopp->packet_length);
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xB7:
-		// Client buying an item
-		if ( client->lobbyNum > 0x0F )
-		{
-			if ((l->floor[client->clientID] == 0)
-				&& (client->decryptbuf[0x10] < 0x03) 
-				&& (client->doneshop[client->decryptbuf[0x10]]))
-			{
-				if (client->decryptbuf[0x11] < shops[client->doneshop[client->decryptbuf[0x10]]].num_items)
-				{
-					shopi = &shops[client->doneshop[client->decryptbuf[0x10]]].item[client->decryptbuf[0x11]];
-					if ((client->decryptbuf[0x12] > 1) && (shopi->data[0] != 0x03))
-						client->todc = 1;
-					else
-						if (client->character.meseta < ((unsigned)client->decryptbuf[0x12] * shopi->price))
-						{
-							Send1A ("Not enough meseta for purchase.", client);
-							client->todc = 1;
-						}
-						else
-						{
-							INVENTORY_ITEM i;
-
-							memset (&i, 0, sizeof (INVENTORY_ITEM));
-							memcpy (&i.item.data[0], &shopi->data[0], 12);
-							// Update player item ID
-							l->playerItemID[client->clientID] = *(unsigned *) &client->decryptbuf[0x0C];
-							i.item.itemid = l->playerItemID[client->clientID]++;
-							AddToInventory (&i, client->decryptbuf[0x12], 1, client);
-							DeleteMesetaFromClient (shopi->price * (unsigned) client->decryptbuf[0x12], 0, client);
-						}
-				}
-				else
-					client->todc = 1;
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xB8:
-		// Client is tekking a weapon.
-		if ( client->lobbyNum > 0x0F )
-		{
-			unsigned compare_item;
-
-			INVENTORY_ITEM* i;
-
-			i = NULL;
-
-			compare_item = *(unsigned *) &client->decryptbuf[0x0C];
-
-			for (ch=0;ch<client->character.inventoryUse;ch++)
-			{
-				if ((client->character.inventory[ch].item.itemid == compare_item) &&
-					(client->character.inventory[ch].item.data[0] == 0x00) &&
-					(client->character.inventory[ch].item.data[4] & 0x80) &&
-					(client->character.meseta >= 100))
-				{
-					char percent_mod;
-					unsigned attrib;
-
-					i = &client->character.inventory[ch];
-					attrib = i->item.data[4] & ~(0x80);
-					
-					client->tekked = *i;
-
-					if ( attrib < 0x29)
-					{
-						client->tekked.item.data[4] = tekker_attributes [( attrib * 3) + 1];
-						if ( ( mt_lrand() % 100 ) > 70 )
-							client->tekked.item.data[4] += mt_lrand() % ( ( tekker_attributes [(attrib * 3) + 2] - tekker_attributes [(attrib * 3) + 1] ) + 1 );
-					}
-					else
-						client->tekked.item.data[4] = 0;
-					if ( ( mt_lrand() % 10 ) < 2 ) percent_mod = -10;
-					else
-						if ( ( mt_lrand() % 10 ) < 2 ) percent_mod = -5;
-						else
-							if ( ( mt_lrand() % 10 ) < 2 ) percent_mod = 5;
-							else
-								if ( ( mt_lrand() % 10 ) < 2 ) percent_mod = 10;
-								else
-									percent_mod = 0;
-					if ((!(i->item.data[6] & 128)) && (i->item.data[7] > 0))
-						(char)client->tekked.item.data[7] += percent_mod;
-					if ((!(i->item.data[8] & 128)) && (i->item.data[9] > 0))
-						(char)client->tekked.item.data[9] += percent_mod;
-					if ((!(i->item.data[10] & 128)) && (i->item.data[11] > 0))
-						(char)client->tekked.item.data[11] += percent_mod;
-					DeleteMesetaFromClient (100, 0, client);
-					memset (&client->encryptbuf[0x00], 0, 0x20);
-					client->encryptbuf[0x00] = 0x20;
-					client->encryptbuf[0x02] = 0x60;
-					client->encryptbuf[0x08] = 0xB9;
-					client->encryptbuf[0x09] = 0x08;
-					client->encryptbuf[0x0A] = 0x79;
-					memcpy (&client->encryptbuf[0x0C], &client->tekked.item.data[0], 16);
-					cipher_ptr = &client->server_cipher;
-					encryptcopy (client, &client->encryptbuf[0x00], 0x20);
-					break;
-				}
-			}
-
-			if ( i == NULL )
-			{
-				Send1A ("Could not find item to Tek.", client);
-				client->todc = 1;
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xBA:
-		// Client accepting tekked version of weapon.
-		if ( ( client->lobbyNum > 0x0F ) && ( client->tekked.item.itemid ) )
-		{
-			unsigned ch2;
-
-			for (ch=0;ch<4;ch++)
-			{
-				if ((l->slot_use[ch]) && (l->client[ch]))
-				{
-					for (ch2=0;ch2<l->client[ch]->character.inventoryUse;ch2++)
-						if (l->client[ch]->character.inventory[ch2].item.itemid == client->tekked.item.itemid)
-						{
-							Send1A ("Item duplication attempt!", client);
-							client->todc = 1;
-							break;
-						}
-				}
-			}
-
-			for (ch=0;ch<l->gameItemCount;l++)
-			{
-				itemNum = l->gameItemList[ch];
-				if (l->gameItem[itemNum].item.itemid == client->tekked.item.itemid)
-				{
-					// Added to the game's inventory by the client...
-					// Delete it and avoid duping...
-					memset (&l->gameItem[itemNum], 0, sizeof (GAME_ITEM));
-					l->gameItemList[ch] = 0xFFFFFFFF;
-					break;
-				}
-			}
-
-			CleanUpGameInventory (l);
-
-			if (!client->todc)
-			{
-				AddToInventory (&client->tekked, 1, 1, client);
-				memset (&client->tekked, 0, sizeof (INVENTORY_ITEM));
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xBB:
-		// Client accessing bank
-		if ( client->lobbyNum < 0x10 )
-			client->todc = 1;
-		else
-		{
-			if ( ( l->floor[client->clientID] == 0) && ( ((unsigned) servertime - client->command_cooldown[0xBB]) >= 1 ))
-			{
-				client->command_cooldown[0xBB] = (unsigned) servertime;
-
-				/* Which bank are we accessing? */
-
-				client->bankAccess = client->bankType;
-
-				if (client->bankAccess)
-					memcpy (&client->character.bankUse, &client->common_bank, sizeof (BANK));
-				else
-					memcpy (&client->character.bankUse, &client->char_bank, sizeof (BANK));
-
-				for (ch=0;ch<client->character.bankUse;ch++)
-					client->character.bankInventory[ch].itemid = l->bankItemID[client->clientID]++;
-				memset (&client->encryptbuf[0x00], 0, 0x34);
-				client->encryptbuf[0x02] = 0x6C;
-				client->encryptbuf[0x08] = 0xBC;
-				bank_size = 0x18 * (client->character.bankUse + 1);
-				*(unsigned *) &client->encryptbuf[0x0C] = bank_size;
-				bank_size += 4;
-				*(unsigned short *) &client->encryptbuf[0x00] = (unsigned short) bank_size;
-				bank_use = mt_lrand();
-				*(unsigned *) &client->encryptbuf[0x10] = bank_use;
-				bank_use = client->character.bankUse;
-				*(unsigned *) &client->encryptbuf[0x14] = bank_use;
-				*(unsigned *) &client->encryptbuf[0x18] = client->character.bankMeseta;
-				if (client->character.bankUse)
-					memcpy (&client->encryptbuf[0x1C], &client->character.bankInventory[0], sizeof (BANK_ITEM) * client->character.bankUse);
-				cipher_ptr = &client->server_cipher;
-				encryptcopy (client, &client->encryptbuf[0x00], bank_size);
-			}
-		}
-		break;
-	case 0xBD:
-		if ( client->lobbyNum < 0x10 )
-		{
-			dont_send = 1;
-			client->todc = 1;
-		}
-		else
-		{
-			if ( l->floor[client->clientID] == 0)
-			{
-				switch (client->decryptbuf[0x14])
-				{
-				case 0x00: 
-					// Making a deposit
-					itemid = *(unsigned *) &client->decryptbuf[0x0C];
-					if (itemid == 0xFFFFFFFF)
-					{
-						meseta = *(unsigned *) &client->decryptbuf[0x10];
-
-						if (client->character.meseta >= meseta)
-						{
-							client->character.bankMeseta += meseta;
-							client->character.meseta -= meseta;
-							if (client->character.bankMeseta > 999999)
-								client->character.bankMeseta = 999999;
-						}
-						else
-						{
-							Send1A ("Client/server data synchronization error.", client);
-							client->todc = 1;
-						}
-					}
-					else
-					{
-						if ( client->character.bankUse < 200 )
-						{
-							// Depositing something else...
-							count = client->decryptbuf[0x15];
-							DepositIntoBank (itemid, count, client);
-							if (!client->todc)
-								SortBankItems(client);
-						}
-						else
-						{						
-							Send1A ("Can't deposit.  Bank is full.", client);
-							client->todc = 1;
-						}
-					}
-					break;
-				case 0x01:
-					itemid = *(unsigned *) &client->decryptbuf[0x0C];
-					if (itemid == 0xFFFFFFFF)
-					{
-						meseta = *(unsigned *) &client->decryptbuf[0x10];
-						if (client->character.bankMeseta >= meseta)
-						{
-							client->character.bankMeseta -= meseta;
-							client->character.meseta += meseta;
-						}
-						else
-							client->todc = 1;
-					}
-					else
-					{
-						// Withdrawing something else...
-						count = client->decryptbuf[0x15];
-						WithdrawFromBank (itemid, count, client);
-					}
-					break;
-				default:
-					break;
-				}
-
-				/* Update bank. */
-
-				if (client->bankAccess)
-					memcpy (&client->common_bank, &client->character.bankUse, sizeof (BANK));
-				else
-					memcpy (&client->char_bank, &client->character.bankUse, sizeof (BANK));
-
-			}
-		}
-		break;
-	case 0xC1:
-	case 0xC2:
-	//case 0xCD:
-	//case 0xCE:
-		if (t < maxt)
-		{
-			// Team invite for C1 & C2, Master Transfer for CD & CE.
-			if (size == 0x64)
-				dont_send = 0;
-
-			if (client->decryptbuf[0x08] == 0xC2)
-			{
-				unsigned gcn;
-
-				gcn = *(unsigned *) &client->decryptbuf[0x0C];
-				if ((client->decryptbuf[0x10] == 0x02) &&
-					(client->guildcard == gcn))
-					client->teamaccept = 1;
-			}
-
-			if (client->decryptbuf[0x08] == 0xCD)
-			{
-				if (client->character.privilegeLevel != 0x40)
-				{
-					dont_send = 1;
-					Send01 ("You aren't the master of your team.", client);
-				}
-				else
-					client->masterxfer = 1;
-			}
-		}
-		break;
-	case 0xC9:
-		if ( client->lobbyNum > 0x0F )
-		{
-			INVENTORY_ITEM add_item;
-			int meseta;
-
-			if ( l->quest_loaded )
-			{
-				meseta = *(int *) &client->decryptbuf[0x0C];
-				if (meseta < 0)
-				{
-					meseta = -meseta;
-					client->character.meseta -= (unsigned) meseta;
-				}
-				else
-				{
-					memset (&add_item, 0, sizeof (INVENTORY_ITEM));
-					add_item.item.data[0] = 0x04;
-					*(unsigned *) &add_item.item.data2[0] = *(unsigned *) &client->decryptbuf[0x0C];
-					add_item.item.itemid = l->itemID;
-					l->itemID++;
-					AddToInventory (&add_item, 1, 0, client);
-				}
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xCA:
-		if ( client->lobbyNum > 0x0F )
-		{
-			INVENTORY_ITEM add_item;
-
-			if ( l->quest_loaded )
-			{
-				unsigned ci, compare_item = 0;
-
-				memset (&add_item, 0, sizeof (INVENTORY_ITEM));
-				memcpy ( &compare_item, &client->decryptbuf[0x0C], 3 );
-				for ( ci = 0; ci < quest_numallows; ci ++)
-				{
-					if (compare_item == quest_allow[ci])
-					{
-						add_item.item.data[0] = 0x01;
-						break;
-					}
-				}
-				if (add_item.item.data[0] == 0x01)
-				{
-					memcpy (&add_item.item.data[0], &client->decryptbuf[0x0C], 12);
-					add_item.item.itemid = l->itemID;
-					l->itemID++;
-					AddToInventory (&add_item, 1, 0, client);
-				}
-				else
-				{
-					SendEE ("You did not receive the quest reward.  The item requested is not on the allow list.  Your request and guild card have been logged for the server administrator.", client);
-					WriteLog ("User %u attempted to claim quest reward %08x but item is not in the allow list.", client->guildcard, compare_item );
-				}
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xD0:
-		// Level up player?
-		// Player to level @ 0x0A
-		// Levels to gain @ 0x0C
-		if ( ( t < maxt ) && ( l->battle ) && ( l->quest_loaded ) )
-		{
-			if ( ( client->decryptbuf[0x0A] < 4 ) && ( l->client[client->decryptbuf[0x0A]] ) )
-			{
-				unsigned target_lv;
-
-				lClient = l->client[client->decryptbuf[0x0A]];
-				target_lv = lClient->character.level;
-				target_lv += client->decryptbuf[0x0C];
-				
-				if ( target_lv > 199 )
-					 target_lv = 199;
-
-				SkipToLevel ( target_lv, lClient, 0 );
-			}
-		}
-		break;
-	case 0xD6:
-		// Wrap an item
-		if ( client->lobbyNum > 0x0F )
-		{
-			unsigned wrap_id;
-			INVENTORY_ITEM backup_item;
-
-			memset (&backup_item, 0, sizeof (INVENTORY_ITEM));
-			wrap_id = *(unsigned *) &client->decryptbuf[0x18];
-
-			for (ch=0;ch<client->character.inventoryUse;ch++)
-			{
-				if (client->character.inventory[ch].item.itemid == wrap_id)
-				{
-					memcpy (&backup_item, &client->character.inventory[ch], sizeof (INVENTORY_ITEM));
-					break;
-				}
-			}
-
-			if (backup_item.item.itemid)
-			{
-				DeleteFromInventory (&backup_item, 1, client);					
-				if (!client->todc)
-				{
-					if (backup_item.item.data[0] == 0x02)
-						backup_item.item.data2[2] |= 0x40; // Wrap a mag
-					else
-						backup_item.item.data[4] |= 0x40; // Wrap other
-					AddToInventory (&backup_item, 1, 0, client);
-				}
-			}
-			else
-			{
-				Send1A ("Could not find item to wrap.", client);
-				client->todc = 1;
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xDF:
-		if ( client->lobbyNum > 0x0F )
-		{
-			if ( ( l->oneperson ) && ( l->quest_loaded ) && ( !l->drops_disabled ) )
-			{
-				INVENTORY_ITEM work_item;
-
-				memset (&work_item, 0, sizeof (INVENTORY_ITEM));
-				work_item.item.data[0] = 0x03;
-				work_item.item.data[1] = 0x10;
-				work_item.item.data[2] = 0x02;
-				DeleteFromInventory (&work_item, 1, client);
-				if (!client->todc)
-					l->drops_disabled = 1;
-			}
-		}
-		else
-			client->todc = 1;
-		break;
-	case 0xE0:
-		if ( client->lobbyNum > 0x0F )
-		{
-			if ( ( l->oneperson ) && ( l->quest_loaded ) && ( l->drops_disabled ) && ( !l->questE0 ) )
-			{
-				unsigned bp, bpl, new_item;
-
-				if ( client->decryptbuf[0x0D] > 0x03 )
-					bpl = 1;
-				else
-					bpl = l->difficulty + 1;
-
-				for (bp=0;bp<bpl;bp++)
-				{
-					new_item = 0;
-
-					switch ( client->decryptbuf[0x0D] )
-					{
-					case 0x00:
-						// bp1 dorphon route
-						switch ( l->difficulty )
-						{
-						case 0x00:
-							new_item = bp_dorphon_normal[mt_lrand() % (sizeof(bp_dorphon_normal)/4)];
-							break;
-						case 0x01:
-							new_item = bp_dorphon_hard[mt_lrand() % (sizeof(bp_dorphon_hard)/4)];
-							break;
-						case 0x02:
-							new_item = bp_dorphon_vhard[mt_lrand() % (sizeof(bp_dorphon_vhard)/4)];
-							break;
-						case 0x03:
-							new_item = bp_dorphon_ultimate[mt_lrand() % (sizeof(bp_dorphon_ultimate)/4)];
-							break;
-						}
-						break;
-					case 0x01:
-						// bp1 rappy route
-						switch ( l->difficulty )
-						{
-						case 0x00:
-							new_item = bp_rappy_normal[mt_lrand() % (sizeof(bp_rappy_normal)/4)];
-							break;
-						case 0x01:
-							new_item = bp_rappy_hard[mt_lrand() % (sizeof(bp_rappy_hard)/4)];
-							break;
-						case 0x02:
-							new_item = bp_rappy_vhard[mt_lrand() % (sizeof(bp_rappy_vhard)/4)];
-							break;
-						case 0x03:
-							new_item = bp_rappy_ultimate[mt_lrand() % (sizeof(bp_rappy_ultimate)/4)];
-							break;
-						}
-						break;
-					case 0x02:
-						// bp1 zu route
-						switch ( l->difficulty )
-						{
-						case 0x00:
-							new_item = bp_zu_normal[mt_lrand() % (sizeof(bp_zu_normal)/4)];
-							break;
-						case 0x01:
-							new_item = bp_zu_hard[mt_lrand() % (sizeof(bp_zu_hard)/4)];
-							break;
-						case 0x02:
-							new_item = bp_zu_vhard[mt_lrand() % (sizeof(bp_zu_vhard)/4)];
-							break;
-						case 0x03:
-							new_item = bp_zu_ultimate[mt_lrand() % (sizeof(bp_zu_ultimate)/4)];
-							break;
-						}
-						break;
-					case 0x04:
-						// bp2
-						switch ( l->difficulty )
-						{
-						case 0x00:
-							new_item = bp2_normal[mt_lrand() % (sizeof(bp2_normal)/4)];
-							break;
-						case 0x01:
-							new_item = bp2_hard[mt_lrand() % (sizeof(bp2_hard)/4)];
-							break;
-						case 0x02:
-							new_item = bp2_vhard[mt_lrand() % (sizeof(bp2_vhard)/4)];
-							break;
-						case 0x03:
-							new_item = bp2_ultimate[mt_lrand() % (sizeof(bp2_ultimate)/4)];
-							break;
-						}
-						break;
-					}
-					l->questE0 = 1;
-					memset (&client->encryptbuf[0x00], 0, 0x2C);
-					client->encryptbuf[0x00] = 0x2C;
-					client->encryptbuf[0x02] = 0x60;
-					client->encryptbuf[0x08] = 0x5D;
-					client->encryptbuf[0x09] = 0x09;
-					client->encryptbuf[0x0A] = 0xFF;
-					client->encryptbuf[0x0B] = 0xFB;
-					memcpy (&client->encryptbuf[0x0C], &client->decryptbuf[0x0C], 12 );
-					*(unsigned *) &client->encryptbuf[0x18] = new_item;
-					*(unsigned *) &client->encryptbuf[0x24] = l->itemID;
-					itemNum = free_game_item (l);
-					if (l->gameItemCount < MAX_SAVED_ITEMS)
-						l->gameItemList[l->gameItemCount++] = itemNum;
-					memset (&l->gameItem[itemNum], 0, sizeof (GAME_ITEM));
-					*(unsigned *) &l->gameItem[itemNum].item.data[0] = new_item;
-					if (new_item == 0x04)
-					{
-						new_item  = pt_tables_ep1[client->character.sectionID][l->difficulty].enemy_meseta[0x2E][0];
-						new_item += mt_lrand() % 100;
-						*(unsigned *) &client->encryptbuf[0x28] = new_item;
-						*(unsigned *) &l->gameItem[itemNum].item.data2[0] = new_item;
-					}
-					if (l->gameItem[itemNum].item.data[0] == 0x00)
-					{
-						l->gameItem[itemNum].item.data[4] = 0x80; // Untekked
-						client->encryptbuf[0x1C] = 0x80;
-					}
-					l->gameItem[itemNum].item.itemid = l->itemID++;
-					cipher_ptr = &client->server_cipher;
-					encryptcopy (client, &client->encryptbuf[0x00], 0x2C);
-				}
-			}
-		}
-		break;
-	default:
-		if (client->lobbyNum > 0x0F)
-		{
-			WriteLog ("62 command \"%02x\" not handled in game. (Data below)", client->decryptbuf[0x08]);
-			packet_to_text ( &client->decryptbuf[0x00], size );
-			WriteLog ("%s", &dp[0]);
-		}
-		break;
-	}
-
-	if ( ( dont_send == 0 ) && ( !client->todc ) )
-	{
-		if ((l->slot_use[t]) && (l->client[t]))
-		{
-			lClient = l->client[t];
-			cipher_ptr = &lClient->server_cipher;
-			encryptcopy (lClient, &client->decryptbuf[0], size);
-		}
-	}
-}
-
-void Send08(PSO_CLIENT* client)
-{
-	BLOCK* b;
-	unsigned ch,ch2,qNum;
-	unsigned char game_flags, total_games;
-	LOBBY* l;
-	unsigned Offset;
-	QUEST* q;
-
-	if (client->block <= serverBlocks)
-	{
-		total_games = 0;
-		b = blocks[client->block-1];
-		Offset = 0x34;
-		for (ch=16;ch<(16+SHIP_COMPILED_MAX_GAMES);ch++)
-		{
-			l = &b->lobbies[ch];
-			if (l->in_use)
-			{
-				memset (&PacketData[Offset], 0, 44);
-				// Output game
-				Offset += 2;
-				PacketData[Offset] = 0x03;
-				Offset += 2;
-				*(unsigned *) &PacketData[Offset] = ch;
-				Offset += 4;
-				PacketData[Offset++] = 0x22 + l->difficulty;
-				PacketData[Offset++] = l->lobbyCount;
-				memcpy(&PacketData[Offset], &l->gameName[0], 30);
-				Offset += 32;
-				if (!l->oneperson)
-					PacketData[Offset++] = 0x40 + l->episode;
-				else
-					PacketData[Offset++] = 0x10 + l->episode;
-				if (l->inpquest)
-				{
-					game_flags = 0x80;
-					// Grey out Government quests that the player is not qualified for...
-					q = &quests[l->quest_loaded - 1];
-					memcpy (&dp[0], &q->ql[0]->qdata[0x31], 3);
-					dp[4] = 0;
-					qNum = (unsigned) atoi ( &dp[0] );
-					switch (l->episode)
-					{
-					case 0x01:
-						qNum -= 401;
-						qNum <<= 1;
-						qNum += 0x1F3;
-						for (ch2=0x1F5;ch2<=qNum;ch2+=2)
-							if (!qflag(&client->character.quest_data1[0], ch2, l->difficulty))
-								game_flags |= 0x04;
-						break;
-					case 0x02:
-						qNum -= 451;
-						qNum <<= 1;
-						qNum += 0x211;
-						for (ch2=0x213;ch2<=qNum;ch2+=2)
-							if (!qflag(&client->character.quest_data1[0], ch2, l->difficulty))
-								game_flags |= 0x04;
-						break;
-					case 0x03:
-						qNum -= 701;
-						qNum += 0x2BC;
-						for (ch2=0x2BD;ch2<=qNum;ch2++)
-							if (!qflag(&client->character.quest_data1[0], ch2, l->difficulty))
-								game_flags |= 0x04;
-						break;
-					}
-				}
-				else
-					game_flags = 0x40;
-				// Get flags for battle and one person games...
-				if ((l->gamePassword[0x00] != 0x00) || 
-					(l->gamePassword[0x01] != 0x00))
-					game_flags |= 0x02;
-				if ((l->quest_in_progress) || (l->oneperson)) // Can't join!
-					game_flags |= 0x04;
-				if (l->battle)
-					game_flags |= 0x10;
-				if (l->challenge)
-					game_flags |= 0x20;
-				// Wonder what flags 0x01 and 0x08 control....
-				PacketData[Offset++] = game_flags;
-				total_games++;
-			}
-		}
-		*(unsigned short*) &client->encryptbuf[0x00] = (unsigned short) Offset;
-		memcpy (&client->encryptbuf[0x02], &Packet08[2], 0x32);
-		client->encryptbuf[0x04] = total_games;
-		client->encryptbuf[0x08] = (unsigned char) client->lobbyNum;
-		if ( client->block == 10 )
-		{
-			client->encryptbuf[0x1C] = 0x31;
-			client->encryptbuf[0x1E] = 0x30;
-		}
-		else
-			client->encryptbuf[0x1E] = 0x30 + client->block;
-
-		if ( client->lobbyNum > 9 )
-			client->encryptbuf[0x24] = 0x30 - ( 10 - client->lobbyNum );
-		else
-			client->encryptbuf[0x22] = 0x30 + client->lobbyNum;
-		memcpy (&client->encryptbuf[0x34], &PacketData[0x34], Offset - 0x34);
-		cipher_ptr = &client->server_cipher;
-		encryptcopy ( client, &client->encryptbuf[0x00], Offset );
-	}
-}
-
-void Send1A (const char *mes, PSO_CLIENT* client)
-{
-	unsigned short x1A_Len;
-
-	memcpy (&PacketData[0], &Packet1A[0], sizeof (Packet1A));
-	x1A_Len = sizeof (Packet1A);
-
-	while (*mes != 0x00)
-	{
-		PacketData[x1A_Len++] = *(mes++);
-		PacketData[x1A_Len++] = 0x00;
-	}
-
-	PacketData[x1A_Len++] = 0x00;
-	PacketData[x1A_Len++] = 0x00;
-
-	while (x1A_Len % 8)
-		PacketData[x1A_Len++] = 0x00;
-
-	*(unsigned short*) &PacketData[0] = x1A_Len;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketData[0], x1A_Len);
-}
-
-void Send1D (PSO_CLIENT* client)
-{
-	unsigned num_minutes;
-
-	if ((((unsigned) servertime - client->savetime) / 60L) >= 5)
-	{
-		// Backup character data every 5 minutes.
-		client->savetime = (unsigned) servertime;
-		ShipSend04 (0x02, client, logon);
-	}
-
-	num_minutes = ((unsigned) servertime - client->response) / 60L;
-	if (num_minutes)
-	{
-		if (num_minutes > 2)
-			initialize_connection (client); // If the client hasn't responded in over two minutes, drop the connection.
-		else
-		{
-			cipher_ptr = &client->server_cipher;
-			encryptcopy (client, &Packet1D[0], sizeof (Packet1D));
-		}
-	}
-}
-
-void Send83 (PSO_CLIENT* client)
-{
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &Packet83[0], sizeof (Packet83));
-
-}
-
-void Send64 (PSO_CLIENT* client)
-{
-	LOBBY* l;
-	unsigned Offset;
-	unsigned ch;
-
-	if (!client->lobby)
-		return;
-	l = (LOBBY*) client->lobby;
-
-	for (ch=0;ch<4;ch++)
-	{
-		if (!l->slot_use[ch])
-		{
-			l->slot_use[ch] = 1; // Slot now in use
-			l->client[ch] = client;
-			// lobbyNum should be set before joining the game
-			client->clientID = ch;
-			l->gamePlayerCount++;
-			l->gamePlayerID[ch] = l->gamePlayerCount;
-			break;
-		}
-	}
-	l->lobbyCount = 0;
-	for (ch=0;ch<4;ch++)
-	{
-		if ((l->slot_use[ch]) && (l->client[ch]))
-			l->lobbyCount++;
-	}
-	memset (&PacketData[0], 0, 0x1A8);
-	PacketData[0x00] = 0xA8;
-	PacketData[0x01] = 0x01;
-	PacketData[0x02] = 0x64;
-	PacketData[0x04] = (unsigned char) l->lobbyCount;
-	memcpy (&PacketData[0x08], &l->gameMap[0], 128 );
-	Offset = 0x88;
-	for (ch=0;ch<4;ch++)
-	{
-		if ((l->slot_use[ch]) && (l->client[ch]))
-		{
-			PacketData[Offset+2] = 0x01;
-			Offset += 0x04;
-			*(unsigned *) &PacketData[Offset] = l->client[ch]->guildcard;
-			Offset += 0x10;
-			PacketData[Offset] = l->client[ch]->clientID;
-			Offset += 0x0C;
-			memcpy (&PacketData[Offset], &l->client[ch]->character.name[0], 24);
-			Offset += 0x20;
-			PacketData[Offset] = 0x02;
-			Offset += 0x04;
-			if ((l->client[ch]->guildcard == client->guildcard) && (l->lobbyCount > 1))
-			{
-				memset (&PacketData2[0], 0, 1316);
-				PacketData2[0x00] = 0x34;
-				PacketData2[0x01] = 0x05;
-				PacketData2[0x02] = 0x65;
-				PacketData2[0x04] = 0x01;
-				PacketData2[0x08] = client->clientID;
-				PacketData2[0x09] = l->leader;
-				PacketData2[0x0A] = 0x01; // ??
-				PacketData2[0x0B] = 0xFF; // ??
-				PacketData2[0x0C] = 0x01; // ??
-				PacketData2[0x0E] = 0x01; // ??
-				PacketData2[0x16] = 0x01;
-				*(unsigned *) &PacketData2[0x18] = client->guildcard;
-				PacketData2[0x30] = client->clientID;
-				memcpy (&PacketData2[0x34], &client->character.name[0], 24);
-				PacketData2[0x54] = 0x02; // ??
-				memcpy (&PacketData2[0x58], &client->character.inventoryUse, 0x4DC);
-				// Prevent crashing with NPC skins...
-				if (client->character.skinFlag)
-					memset (&PacketData2[0x58+0x3A8], 0, 10);
-				SendToLobby ( client->lobby, 4, &PacketData2[0x00], 1332, client->guildcard );
-			}
-		}
-	}
-
-	if (l->lobbyCount < 4)
-		PacketData[0x194] = 0x02;
-	if (l->lobbyCount < 3)
-		PacketData[0x150] = 0x02;
-	if (l->lobbyCount < 2)
-		PacketData[0x10C] = 0x02;
-
-	// Most of the 0x64 packet has been generated... now for the important stuff. =p
-	// Leader ID @ 0x199
-	// Difficulty @ 0x19B
-	// Event @ 0x19D
-	// Section ID of Leader @ 0x19E
-	// Game Monster @ 0x1A0 (4 bytes)
-	// Episode @ 0x1A4
-	// 0x01 @ 0x1A5
-	// One-person @ 0x1A6
-
-	PacketData[0x198] = client->clientID;
-	PacketData[0x199] = l->leader;
-	PacketData[0x19B] = l->difficulty;
-	PacketData[0x19C] = l->battle;
-	if ((shipEvent < 7) && (shipEvent != 0x02))
-		PacketData[0x19D] = shipEvent;
-	else
-		PacketData[0x19D] = 0;
-	PacketData[0x19E] = l->sectionID;
-	PacketData[0x19F] = l->challenge;
-	*(unsigned *) &PacketData[0x1A0] = *(unsigned *) &l->gameMonster;
-	PacketData[0x1A4] = l->episode;
-	PacketData[0x1A5] = 0x01; // ??
-	PacketData[0x1A6] = l->oneperson;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketData[0], 0x1A8);
-
-	/* Let's send the team data... */
-
-	SendToLobby ( client->lobby, 4, MakePacketEA15 ( client ), 2152, client->guildcard );
-
-	client->bursting = 1;
-}
-
-void Send67 (PSO_CLIENT* client, unsigned char preferred)
-{
-	BLOCK* b;
-	PSO_CLIENT* lClient;
-	LOBBY* l;
-	unsigned Offset = 0, Offset2 = 0;
-	unsigned ch, ch2;
-
-	if (!client->lobbyOK)
-		return;
-
-	client->lobbyOK = 0;
-
-	ch = 0;
-	
-	b = blocks[client->block - 1];
-	if ((preferred != 0xFF) && (preferred < 0x0F))
-	{
-		if (b->lobbies[preferred].lobbyCount >= 12)
-			preferred = 0x00;
-		ch = preferred;
-	}
-
-	for (ch=ch;ch<15;ch++)
-	{
-		l = &b->lobbies[ch];
-		if (l->lobbyCount < 12)
-		{
-			for (ch2=0;ch2<12;ch2++)
-				if (l->slot_use[ch2] == 0)
-				{
-					l->slot_use[ch2] = 1;
-					l->client[ch2] = client;
-					l->arrow_color[ch2] = 0;
-					client->lobbyNum = ch + 1;
-					client->lobby = (void*) &b->lobbies[ch];
-					client->clientID = ch2;
-					break;
-				}
-				// Send68 here with joining client (use ch2 for clientid)
-				l->lobbyCount = 0;
-				for (ch2=0;ch2<12;ch2++)
-				{
-					if ((l->slot_use[ch2]) && (l->client[ch2]))
-						l->lobbyCount++;
-				}
-
-				memset (&PacketData[0x00], 0, 0x10);
-				PacketData[0x04] = l->lobbyCount;
-				PacketData[0x08] = client->clientID;
-				PacketData[0x0B] = ch;
-				PacketData[0x0C] = client->block;
-				PacketData[0x0E] = shipEvent;
-				Offset = 0x16;
-				for (ch2=0;ch2<12;ch2++)
-				{
-					if ((l->slot_use[ch2]) && (l->client[ch2]))
-					{
-						memset (&PacketData[Offset], 0, 1316);
-						Offset2 = Offset;
-						PacketData[Offset++] = 0x01;
-						PacketData[Offset++] = 0x00;
-						lClient = l->client[ch2];
-						*(unsigned *) &PacketData[Offset] = lClient->guildcard;
-						Offset += 24;
-						*(unsigned *) &PacketData[Offset] = ch2;
-						Offset += 4;
-						memcpy (&PacketData[Offset], &lClient->character.name[0], 24);
-						Offset += 32;
-						PacketData[Offset++] = 0x02;
-						Offset += 3;
-						memcpy (&PacketData[Offset], &lClient->character.inventoryUse, 1246);
-						// Prevent crashing with NPCs
-						if (lClient->character.skinFlag)
-							memset (&PacketData[Offset+0x3A8], 0, 10);
-						Offset += 1246;
-						if (lClient->isgm == 1)
-							*(unsigned *) &PacketData[Offset2 + 0x3CA] = globalName;
-						else
-							if (isLocalGM(lClient->guildcard))
-								*(unsigned *) &PacketData[Offset2 + 0x3CA] = localName;
-							else
-								*(unsigned *) &PacketData[Offset2 + 0x3CA] = normalName;
-						if ((lClient->guildcard == client->guildcard) && (l->lobbyCount > 1))
-						{
-							memcpy (&PacketData2[0x00], &PacketData[0], 0x16 );
-							PacketData2[0x00] = 0x34;
-							PacketData2[0x01] = 0x05;
-							PacketData2[0x02] = 0x68;
-							PacketData2[0x04] = 0x01;
-							memcpy (&PacketData2[0x16], &PacketData[Offset2], 1316 );
-							SendToLobby ( client->lobby, 12, &PacketData2[0x00], 1332, client->guildcard );
-						}
-					}
-				}
-				*(unsigned short*) &PacketData[0] = (unsigned short) Offset;
-				PacketData[2] = 0x67;
-				break;
-		}
-	}
-
-	if (Offset > 0)
-	{
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &PacketData[0], Offset);
-	}
-
-	// Quest data
-
-	memset (&client->encryptbuf[0x00], 0, 8);
-	client->encryptbuf[0] = 0x10;
-	client->encryptbuf[1] = 0x02;
-	client->encryptbuf[2] = 0x60;
-	client->encryptbuf[8] = 0x6F;
-	client->encryptbuf[9] = 0x84;
-	memcpy (&client->encryptbuf[0x0C], &client->character.quest_data1[0], 0x210 );
-	memset (&client->encryptbuf[0x20C], 0, 4);
-	encryptcopy (client, &client->encryptbuf[0x00], 0x210);
-
-	/* Let's send the team data... */
-
-	SendToLobby ( client->lobby, 12, MakePacketEA15 ( client ), 2152, client->guildcard );
-
-	client->bursting = 1;
-}
-
-void Send95 (PSO_CLIENT* client)
-{
-	client->lobbyOK = 1;
-	memset (&client->encryptbuf[0x00], 0, 8);
-	client->encryptbuf[0x00] = 0x08;
-	client->encryptbuf[0x02] = 0x95;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &client->encryptbuf[0], 8);
-	// Restore permanent character...
-	if (client->character_backup)
-	{
-		if (client->mode)
-		{
-			memcpy (&client->character, client->character_backup, sizeof (client->character));
-			client->mode = 0;
-		}
-		free (client->character_backup);
-		client->character_backup = NULL;
-	}
-}
-
-void SendA2 (unsigned char episode, unsigned char solo, unsigned char category, unsigned char gov, PSO_CLIENT* client)
-{
-	QUEST_MENU* qm = 0;
-	QUEST* q;
-	unsigned char qc = 0;
-	unsigned short Offset;
-	unsigned ch,ch2,ch3,show_quest,quest_flag;
-	unsigned char quest_count;
-	char quest_num[16];
-	int qn, tier1, ep1solo;
-	LOBBY* l;
-	unsigned char diff;
-
-	if (!client->lobby)
-		return;
-
-	l = (LOBBY *) client->lobby;
-
-	memset (&PacketData[0], 0, 0x2510);
-
-	diff = l->difficulty;
-
-	if ( l->battle )
-	{
-		qm = &quest_menus[9];
-		qc = 10;
-	}
-	else
-		if ( l->challenge )
-		{
-		}
-		else
-		{
-			switch ( episode )
-			{
-			case 0x01:
-				if ( gov )
-				{
-					qm = &quest_menus[6];
-					qc = 7;
-				}
-				else
-				{
-					if ( solo )
-					{
-						qm = &quest_menus[3];
-						qc = 4;
-					}
-					else
-					{
-						qm = &quest_menus[0];
-						qc = 1;
-					}
-				}
-				break;
-			case 0x02:
-				if ( gov )
-				{
-					qm = &quest_menus[7];
-					qc = 8;
-				}
-				else
-				{
-					if ( solo )
-					{
-						qm = &quest_menus[4];
-						qc = 5;
-					}
-					else
-					{
-						qm = &quest_menus[1];
-						qc = 2;
-					}
-				}
-				break;
-			case 0x03:
-				if ( gov )
-				{
-					qm = &quest_menus[8];
-					qc = 9;
-				}
-				else
-				{
-					if ( solo )
-					{
-						qm = &quest_menus[5];
-						qc = 6;
-					}
-					else
-					{
-						qm = &quest_menus[2];
-						qc = 3;
-					}
-				}
-				break;
-			}
-		}
-
-	if ((qm) && (category == 0))
-	{
-		PacketData[0x02] = 0xA2;
-		PacketData[0x04] = qm->num_categories;
-		Offset = 0x08;
-		for (ch=0;ch<qm->num_categories;ch++)
-		{
-			PacketData[Offset+0x07]	= 0x0F;
-			PacketData[Offset]		= qc;
-			PacketData[Offset+2]	= gov;
-			PacketData[Offset+4]	= ch + 1;
-			memcpy (&PacketData[Offset+0x08], &qm->c_names[ch][0], 0x40);
-			memcpy (&PacketData[Offset+0x48], &qm->c_desc[ch][0], 0xF0);
-			Offset += 0x13C;
-		}
-	}
-	else
-	{
-		ch2 = 0;
-		PacketData[0x02] = 0xA2;
-		category--;
-		quest_count = 0;
-		Offset = 0x08;
-		ep1solo = qflag_ep1solo(&client->character.quest_data1[0], diff);
-		for (ch=0;ch<qm->quest_counts[category];ch++)
-		{
-			q = &quests[qm->quest_indexes[category][ch]];
-			show_quest = 0;
-			if ((solo) && (episode == 0x01))
-			{
-				memcpy (&quest_num[0], &q->ql[0]->qdata[49], 3);
-				quest_num[4] = 0;
-				qn = atoi (&quest_num[0]);
-				if ((ep1solo) || (qn > 26))
-					show_quest = 1;
-				if (!show_quest)
-				{
-					quest_flag = 0x63 + (qn << 1);
-					if (qflag(&client->character.quest_data1[0], quest_flag, diff))
-						show_quest = 2; // Sets a variance if they've cleared the quest...
-					else
-					{
-						tier1 = 0;
-						if ( (qflag(&client->character.quest_data1[0],0x65,diff)) && // Cleared first tier
-							 (qflag(&client->character.quest_data1[0],0x67,diff)) &&
-							 (qflag(&client->character.quest_data1[0],0x6B,diff)) )
-							 tier1 = 1;
-						if (qflag(&client->character.quest_data1[0], quest_flag, diff) == 0)
-						{ // When the quest hasn't been completed...
-							// Forest quests
-							switch (qn)
-							{
-							case 4: // Battle Training
-							case 2: // Claiming a Stake
-							case 1: // Magnitude of Metal
-								show_quest = 1;
-								break;
-							case 5: // Journalistic Pursuit
-							case 6: // The Fake In Yellow
-							case 7: // Native Research
-							case 9: // Gran Squall
-								if (tier1)
-									show_quest = 1;
-								break;
-							case 8: // Forest of Sorrow
-								if (qflag(&client->character.quest_data1[0],0x71,diff)) // Cleared Native Research
-									show_quest = 1;
-								break;
-							case 26: // Central Dome Fire Swirl
-								if (qflag(&client->character.quest_data1[0],0x73,diff)) // Cleared Forest of Sorrow
-									show_quest = 1;
-								break;
-							}
-
-							if ((tier1) && (qflag(&client->character.quest_data1[0],0x1F9,diff)))
-							{
-								// Cave quests (shown after Dragon is defeated)
-								switch (qn)
-								{
-								case 03: // The Value of Money
-								case 11: // The Lost Bride
-								case 14: // Secret Delivery
-								case 17: // Grave's Butler
-								case 10: // Addicting Food
-									show_quest = 1; // Always shown if first tier was cleared
-									break;
-								case 12: // Waterfall Tears
-								case 15: // Soul of a Blacksmith
-									if ( (qflag(&client->character.quest_data1[0],0x77,diff)) && // Cleared Addicting Food
-										 (qflag(&client->character.quest_data1[0],0x79,diff)) && // Cleared The Lost Bride
-										 (qflag(&client->character.quest_data1[0],0x7F,diff)) && // Cleared Secret Delivery
-										 (qflag(&client->character.quest_data1[0],0x85,diff)) )  // Cleared Grave's Butler
-										 show_quest = 1;
-									break;
-								case 13: // Black Paper
-									if (qflag(&client->character.quest_data1[0],0x7B,diff)) // Cleared Waterfall Tears
-										show_quest = 1;
-									break;
-								}
-							}
-
-							if ((tier1) && (qflag(&client->character.quest_data1[0],0x1FF,diff)))
-							{
-								// Mine quests (shown after De Rol Le is defeated)
-								switch (qn)
-								{
-								case 16: // Letter from Lionel
-								case 18: // Knowing One's Heart
-								case 20: // Dr. Osto's Research
-									show_quest = 1; // Always shown if first tier was cleared
-									break;
-								case 21: // The Unsealed Door
-									if ( (qflag(&client->character.quest_data1[0],0x8B,diff)) && // Cleared Dr. Osto's Research
-										 (qflag(&client->character.quest_data1[0],0x7F,diff)) )  // Cleared Secret Delivery
-										show_quest = 1;
-									break;
-								}
-							}
-
-							if ((tier1) && (qflag(&client->character.quest_data1[0],0x207,diff)))
-							{
-								// Ruins quests (shown after Vol Opt is defeated)
-								switch (qn)
-								{
-								case 19: // The Retired Hunter
-								case 24: // Seek My Master
-									show_quest = 1;  // Always shown if first tier was cleared
-									break;
-								case 25: // From the Depths
-								case 22: // Soul of Steel
-									if (qflag(&client->character.quest_data1[0],0x91,diff)) // Cleared Doc's Secret Plan
-										show_quest = 1;
-									break;
-								case 23: // Doc's Secret Plan
-									if (qflag(&client->character.quest_data1[0],0x7F,diff)) // Cleared Secret Delivery
-										show_quest = 1;
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-			else
-			{
-				show_quest = 1;
-				if ((ch) && (gov))
-				{
-					// Check party's qualification for quests...
-					switch (episode)
-					{
-					case 0x01:
-						quest_flag = (0x1F3 + (ch << 1));
-						for (ch2=0x1F5;ch2<=quest_flag;ch2+=2)
-							for (ch3=0;ch3<4;ch3++)
-								if ((l->client[ch3]) && (!qflag(&l->client[ch3]->character.quest_data1[0], ch2, diff)))
-								show_quest = 0;
-						break;
-					case 0x02:
-						quest_flag = (0x211 + (ch << 1));
-						for (ch2=0x213;ch2<=quest_flag;ch2+=2)
-							for (ch3=0;ch3<4;ch3++)
-								if ((l->client[ch3]) && (!qflag(&l->client[ch3]->character.quest_data1[0], ch2, diff)))
-								show_quest = 0;
-						break;
-					case 0x03:
-						quest_flag = (0x2BC + ch);
-						for (ch2=0x2BD;ch2<=quest_flag;ch2++)
-							for (ch3=0;ch3<4;ch3++)
-								if ((l->client[ch3]) && (!qflag(&l->client[ch3]->character.quest_data1[0], ch2, diff)))
-								show_quest = 0;
-						break;
-					}
-				}
-			}
-			if (show_quest)
-			{
-				PacketData[Offset+0x07] = 0x0F;
-				PacketData[Offset]      = qc;
-				PacketData[Offset+1]	= 0x01;
-				PacketData[Offset+2]    = gov;
-				PacketData[Offset+3]    = ((unsigned char) qm->quest_indexes[category][ch]) + 1;
-				PacketData[Offset+4]    = category;
-				if ((client->character.lang < 10) && (q->ql[client->character.lang]))
-				  {
-					memcpy (&PacketData[Offset+0x08], &q->ql[client->character.lang]->qname[0], 0x40);
-					memcpy (&PacketData[Offset+0x48], &q->ql[client->character.lang]->qsummary[0], 0xF0);
-				  }
-				else
-				  {
-					memcpy (&PacketData[Offset+0x08], &q->ql[0]->qname[0], 0x40);
-					memcpy (&PacketData[Offset+0x48], &q->ql[0]->qsummary[0], 0xF0);
-				  }
-
-				if ((solo) && (episode == 0x01))
-				{
-					if (qn <= 26)
-					{
-						*(unsigned short*) &PacketData[Offset+0x128] = ep1_unlocks[(qn-1)*2];
-						*(unsigned short*) &PacketData[Offset+0x12C] = ep1_unlocks[((qn-1)*2)+1];
-						*(int*) &PacketData[Offset+0x130] = qn;
-						if ( show_quest == 2 )
-							PacketData[Offset + 0x138] = 1;
-					}
-				}
-				Offset += 0x13C;
-				quest_count++;
-			}
-		}
-		PacketData[0x04] = quest_count;
-	}
-	*(unsigned short*) &PacketData[0] = (unsigned short) Offset;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketData[0], Offset);
-}
-
-void SendA0 (PSO_CLIENT* client)
-{
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketA0Data[0], *(unsigned short *) &PacketA0Data[0]);
-}
-
-void Send07 (PSO_CLIENT* client)
-{
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &Packet07Data[0], *(unsigned short *) &Packet07Data[0]);
-}
-
-void SendB0 (const char *mes, PSO_CLIENT* client)
-{
-	unsigned short xB0_Len;
-
-	memcpy (&PacketData[0], &PacketB0[0], sizeof (PacketB0));
-	xB0_Len = sizeof (PacketB0);
-
-	while (*mes != 0x00)
-	{
-		PacketData[xB0_Len++] = *(mes++);
-		PacketData[xB0_Len++] = 0x00;
-	}
-
-	PacketData[xB0_Len++] = 0x00;
-	PacketData[xB0_Len++] = 0x00;
-
-	while (xB0_Len % 8)
-		PacketData[xB0_Len++] = 0x00;
-	*(unsigned short*) &PacketData[0] = xB0_Len;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketData[0], xB0_Len);
-}
-
-void SendEE (const char *mes, PSO_CLIENT* client)
-{
-	unsigned short xEE_Len;
-
-	memcpy (&PacketData[0], &PacketEE[0], sizeof (PacketEE));
-	xEE_Len = sizeof (PacketEE);
-
-	while (*mes != 0x00)
-	{
-		PacketData[xEE_Len++] = *(mes++);
-		PacketData[xEE_Len++] = 0x00;
-	}
-
-	PacketData[xEE_Len++] = 0x00;
-	PacketData[xEE_Len++] = 0x00;
-
-	while (xEE_Len % 8)
-		PacketData[xEE_Len++] = 0x00;
-	*(unsigned short*) &PacketData[0] = xEE_Len;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketData[0], xEE_Len);
-}
-
-void Send19 (unsigned char ip1, unsigned char ip2, unsigned char ip3, unsigned char ip4, unsigned short ipp, PSO_CLIENT* client)
-{
-	memcpy ( &client->encryptbuf[0], &Packet19, sizeof (Packet19));
-	client->encryptbuf[0x08] = ip1;
-	client->encryptbuf[0x09] = ip2;
-	client->encryptbuf[0x0A] = ip3;
-	client->encryptbuf[0x0B] = ip4;
-	*(unsigned short*) &client->encryptbuf[0x0C] = ipp;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &client->encryptbuf[0], sizeof (Packet19));
-}
-
-void SendEA (unsigned char command, PSO_CLIENT* client)
-{
-	switch (command)
-	{
-	case 0x02:
-		memset (&client->encryptbuf[0x00], 0, 8);
-		client->encryptbuf[0x00] = 0x08;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x02;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 8);
-		break;
-	case 0x04:
-		memset (&client->encryptbuf[0x00], 0, 8);
-		client->encryptbuf[0x00] = 0x08;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x04;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 8);
-		break;
-	case 0x0E:
-		memset (&client->encryptbuf[0x00], 0, 0x38);
-		client->encryptbuf[0x00] = 0x38;
-		client->encryptbuf[0x01] = 0x08;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x0E;
-		*(unsigned *) &client->encryptbuf[0x08] = client->guildcard;
-		*(unsigned *) &client->encryptbuf[0x0C] = client->character.teamID;
-		memcpy (&client->encryptbuf[0x18], &client->character.teamName[0], 28 );
-		client->encryptbuf[0x34] = 0x84;
-		client->encryptbuf[0x35] = 0x6C;
-		memcpy (&client->encryptbuf[0x36], &client->character.teamFlag[0], 0x800);
-		client->encryptbuf[0x836] = 0xFF;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 0x838);
-		break;
-	case 0x10:
-		memset (&client->encryptbuf[0x00], 0, 8);
-		client->encryptbuf[0x00] = 0x08;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x10;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 8);
-		break;
-	case 0x11:
-		memset (&client->encryptbuf[0x00], 0, 8);
-		client->encryptbuf[0x00] = 0x08;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x11;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 8);
-		break;
-	case 0x12:
-		memset (&client->encryptbuf[0x00], 0, 0x40);
-		client->encryptbuf[0x00] = 0x40;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x12;
-		if ( client->character.teamID  )
-		{
-			*(unsigned *) &client->encryptbuf[0x0C] = client->guildcard;
-			*(unsigned *) &client->encryptbuf[0x10] = client->character.teamID;
-			client->encryptbuf[0x1C] = (unsigned char) client->character.privilegeLevel;
-			memcpy (&client->encryptbuf[0x20], &client->character.teamName[0], 28);
-			client->encryptbuf[0x3C] = 0x84;
-			client->encryptbuf[0x3D] = 0x6C;
-			client->encryptbuf[0x3E] = 0x98;
-		}
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 0x40);
-/*
-		if ( client->lobbyNum < 0x10 )
-			SendToLobby ( client->lobby, 12, &client->encryptbuf[0x00], 0x40, 0 );
-		else
-			SendToLobby ( client->lobby, 4, &client->encryptbuf[0x00], 0x40, 0 );
-*/
-		break;
-	case 0x13:
-		{
-			LOBBY *l;
-			PSO_CLIENT *lClient;
-			unsigned ch, total_clients, EA15Offset, maxc;
-
-			if (!client->lobby)
-				break;
-
-			l = (LOBBY*) client->lobby;
-
-			if ( client->lobbyNum < 0x10 ) 
-				maxc = 12;
-			else
-				maxc = 4;
-			EA15Offset = 0x08;
-			total_clients = 0;
-			for (ch=0;ch<maxc;ch++)
-			{
-				if ((l->slot_use[ch]) && (l->client[ch]))
-				{
-					lClient = l->client[ch];
-					*(unsigned *) &client->encryptbuf[EA15Offset] = lClient->character.guildCard2;
-					EA15Offset += 0x04;
-					*(unsigned *) &client->encryptbuf[EA15Offset] = lClient->character.teamID;
-					EA15Offset += 0x04;
-					memset(&client->encryptbuf[EA15Offset], 0, 8);
-					EA15Offset += 0x08;
-					client->encryptbuf[EA15Offset] = (unsigned char) lClient->character.privilegeLevel;
-					EA15Offset += 4;
-					memcpy(&client->encryptbuf[EA15Offset], &lClient->character.teamName[0], 28);
-					EA15Offset += 28;
-					if ( lClient->character.teamID != 0 )
-					{
-						client->encryptbuf[EA15Offset++] = 0x84;
-						client->encryptbuf[EA15Offset++] = 0x6C;
-						client->encryptbuf[EA15Offset++] = 0x98;
-						client->encryptbuf[EA15Offset++] = 0x00;
-					}
-					else
-					{
-						memset (&client->encryptbuf[EA15Offset], 0, 4);
-						EA15Offset+= 4;
-					}
-					*(unsigned *) &client->encryptbuf[EA15Offset] = lClient->character.guildCard;
-					EA15Offset += 4;
-					client->encryptbuf[EA15Offset++] = lClient->clientID;
-					memset(&client->encryptbuf[EA15Offset], 0, 3);
-					EA15Offset += 3;
-					memcpy(&client->encryptbuf[EA15Offset], &lClient->character.name[0], 24);
-					EA15Offset += 24;
-					memset(&client->encryptbuf[EA15Offset], 0, 8);
-					EA15Offset += 8;
-					memcpy(&client->encryptbuf[EA15Offset], &lClient->character.teamFlag[0], 0x800);
-					EA15Offset += 0x800;
-					total_clients++;
-				}
-			}
-			*(unsigned short*) &client->encryptbuf[0x00] = (unsigned short) EA15Offset;
-			client->encryptbuf[0x02] = 0xEA;
-			client->encryptbuf[0x03] = 0x13;
-			*(unsigned*) &client->encryptbuf[0x04] = total_clients;
-			cipher_ptr = &client->server_cipher;
-			encryptcopy (client, &client->encryptbuf[0], EA15Offset);
-		}
-		break;
-	case 0x18:
-		memset (&client->encryptbuf[0x00], 0, 0x4C);
-		client->encryptbuf[0x00] = 0x4C;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x18;
-		client->encryptbuf[0x14] = 0x01;
-		client->encryptbuf[0x18] = 0x01;
-		client->encryptbuf[0x1C] = (unsigned char) client->character.privilegeLevel;
-		*(unsigned *) &client->encryptbuf[0x20] = client->character.guildCard;
-		memcpy (&client->encryptbuf[0x24], &client->character.name[0], 24);
-		client->encryptbuf[0x48] = 0x02;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 0x4C);
-		break;
-	case 0x19:
-		memset (&client->encryptbuf[0x00], 0, 0x0C);
-		client->encryptbuf[0x00] = 0x0C;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x19;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 0x0C);
-		break;
-	case 0x1A:
-		memset (&client->encryptbuf[0x00], 0, 0x0C);
-		client->encryptbuf[0x00] = 0x0C;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x1A;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 0x0C);
-		break;
-	case 0x1D:
-		memset (&client->encryptbuf[0x00], 0, 8);
-		client->encryptbuf[0x00] = 0x08;
-		client->encryptbuf[0x02] = 0xEA;
-		client->encryptbuf[0x03] = 0x1D;
-		cipher_ptr = &client->server_cipher;
-		encryptcopy (client, &client->encryptbuf[0], 8);
-		break;
-	default:
-		break;
-	}
-}
-
 unsigned char* MakePacketEA15 (PSO_CLIENT* client)
 {
 	sprintf (&PacketData[0x00], "\x64\x08\xEA\x15\x01");
@@ -8852,82 +4058,6 @@ unsigned char* MakePacketEA15 (PSO_CLIENT* client)
 	memcpy  (&PacketData[0x44], &client->character.name[0], 24);
 	memcpy  (&PacketData[0x64], &client->character.teamFlag[0], 0x800);
 	return   &PacketData[0];
-}
-
-void ShipSend04 (unsigned char command, PSO_CLIENT* client, PSO_SERVER* ship)
-{
-	//unsigned ch;
-
-	ship->encryptbuf[0x00] = 0x04;
-	switch (command)
-	{
-	case 0x00:
-		// Request character data from server
-		ship->encryptbuf[0x01] = 0x00;
-		*(unsigned *) &ship->encryptbuf[0x02] = client->guildcard;
-		*(unsigned short *) &ship->encryptbuf[0x06] = (unsigned short) client->slotnum;
-		*(int *) &ship->encryptbuf[0x08] = client->plySockfd;
-		*(unsigned *) &ship->encryptbuf[0x0C] = serverID;
-		compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x10 );
-		break;
-	case 0x02:
-		// Send character data to server when not using a temporary character.
-		if ((!client->mode) && (client->gotchardata == 1))
-		{
-			ship->encryptbuf[0x01] = 0x02;
-			*(unsigned *) &ship->encryptbuf[0x02] = client->guildcard;
-			*(unsigned short*) &ship->encryptbuf[0x06] = (unsigned short) client->slotnum;
-			memcpy (&ship->encryptbuf[0x08], &client->character.packetSize, sizeof (CHARDATA));
-			// Include character bank in packet
-			memcpy (&ship->encryptbuf[0x08+0x700], &client->char_bank, sizeof (BANK));
-			// Include common bank in packet
-			memcpy (&ship->encryptbuf[0x08+sizeof(CHARDATA)], &client->common_bank, sizeof (BANK));
-			compressShipPacket ( ship, &ship->encryptbuf[0x00], sizeof(BANK) + sizeof(CHARDATA) + 8 );
-		}
-		break;
-	}
-}
-
-void ShipSend0E (PSO_SERVER* ship)
-{
-	if (logon_ready)
-	{
-		ship->encryptbuf[0x00] = 0x0E;
-		ship->encryptbuf[0x01] = 0x00;
-		*(unsigned *) &ship->encryptbuf[0x02] = serverID;
-		*(unsigned *) &ship->encryptbuf[0x06] = serverNumConnections;
-		compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0A );
-	}
-}
-
-void ShipSend0D (unsigned char command, PSO_CLIENT* client, PSO_SERVER* ship)
-{
-	ship->encryptbuf[0x00] = 0x0D;
-	switch (command)
-	{
-	case 0x00:
-		// Requesting ship list.
-		ship->encryptbuf[0x01] = 0x00;
-		*(int *) &ship->encryptbuf[0x02]= client->plySockfd;
-		compressShipPacket ( ship, &ship->encryptbuf[0x00], 6 );
-		break;
-	default:
-		break;
-	}
-}
-
-void ShipSend0B (PSO_CLIENT* client, PSO_SERVER* ship)
-{
-	ship->encryptbuf[0x00] = 0x0B;
-	ship->encryptbuf[0x01] = 0x00;
-	*(unsigned *) &ship->encryptbuf[0x02] = *(unsigned *) &client->decryptbuf[0x0C];
-	*(unsigned *) &ship->encryptbuf[0x06] = *(unsigned *) &client->decryptbuf[0x18];
-	*(long long *) &ship->encryptbuf[0x0A] = *(long long*) &client->decryptbuf[0x8C];
-	*(long long *) &ship->encryptbuf[0x12] = *(long long*) &client->decryptbuf[0x94];
-	*(long long *) &ship->encryptbuf[0x1A] = *(long long*) &client->decryptbuf[0x9C];
-	*(long long *) &ship->encryptbuf[0x22] = *(long long*) &client->decryptbuf[0xA4];
-	*(long long *) &ship->encryptbuf[0x2A] = *(long long*) &client->decryptbuf[0xAC];
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x32 );
 }
 
 void LogonProcessPacket (PSO_SERVER* ship)
@@ -9325,7 +4455,7 @@ void LogonProcessPacket (PSO_SERVER* ship)
 						if ( (client->isgm) || (isLocalGM(client->guildcard)) )
 							write_gm ("GM %u (%s) has connected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4]));
 						else
-							write_log ("User %u (%s) has connected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4]));
+							write_log ("ship.log", "User %u (%s) has connected", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4]));
 						break;
 					}
 				}
@@ -9901,2333 +5031,6 @@ void LogonProcessPacket (PSO_SERVER* ship)
 	}
 }
 
-void Send60 (PSO_CLIENT* client)
-{
-	unsigned short size, size_check_index;
-	unsigned short sizecheck = 0;
-	int dont_send = 0;
-	LOBBY* l;
-	int boss_floor = 0;
-	unsigned itemid, magid, count, drop;
-	unsigned short mid;
-	short mHP;
-	unsigned XP, ch, ch2, max_send, shop_price;
-	int mid_mismatch;
-	int ignored;
-	int ws_ok;
-	unsigned short ws_data, counter;
-	PSO_CLIENT* lClient;
-
-	size = *(unsigned short*) &client->decryptbuf[0x00];
-	sizecheck = client->decryptbuf[0x09];
-
-	sizecheck *= 4;
-	sizecheck += 8;
-
-	if (!client->lobby)
-		return;
-
-#ifdef LOG_60
-			packet_to_text (&client->decryptbuf[0], size);
-			fprintf(debugfile, "%s\n", dp);
-#endif
-
-	if (size != sizecheck)
-	{
-		debug ("Client sent a 0x60 packet whose sizecheck != size.\n");
-		debug ("Command: %02X | Size: %04X | Sizecheck(%02x): %04x\n", client->decryptbuf[0x08],
-			size, client->decryptbuf[0x09], sizecheck);
-		client->decryptbuf[0x09] = ((size / 4) - 2);
-	}
-
-	l = (LOBBY*) client->lobby;
-
-	if ( client->lobbyNum < 0x10 )
-	{
-		size_check_index  = client->decryptbuf[0x08];
-		size_check_index *= 2;
-
-		if (client->decryptbuf[0x08] == 0x06)
-			sizecheck = 0x114; 
-		else
-			sizecheck = size_check_table[size_check_index+1] + 4;
-
-		if ( ( size != sizecheck ) && ( sizecheck > 4 ) )
-			dont_send = 1;
-
-		if ( sizecheck == 4 ) // No size check packet encountered while in lobby mode...
-		{
-			debug ("No size check information for 0x60 lobby packet %02x", client->decryptbuf[0x08]);
-			dont_send = 1;
-		}
-	}
-	else
-	{
-		if (dont_send_60[(client->decryptbuf[0x08]*2) + 1] == 1)
-		{
-			dont_send = 1;
-			write_log ("60 command \"%02x\" blocked in game. (Data below)", client->decryptbuf[0x08]);
-			packet_to_text ( &client->decryptbuf[0x00], size );
-			write_log ("%s", &dp[0]);
-		}
-	}
-
-	if ( ( client->decryptbuf[0x0A] != client->clientID )				&&
-		 ( size_check_table[(client->decryptbuf[0x08]*2)+1] != 0x00 )	&&
-		 ( client->decryptbuf[0x08] != 0x07 )							&&
-		 ( client->decryptbuf[0x08] != 0x79 ) )
-		dont_send = 1;
-
-	if ( ( client->decryptbuf[0x08] == 0x07 ) && 
-		 ( client->decryptbuf[0x0C] != client->clientID ) )
-		dont_send = 1;
-
-	if ( client->decryptbuf[0x08] == 0x72 )
-		dont_send = 1;
-
-	if (!dont_send)
-	{
-		switch ( client->decryptbuf[0x08] )
-		{
-		case 0x07:
-			// Symbol chat (throttle for spam)
-			dont_send = 1;
-			if ( ( ((unsigned) servertime - client->command_cooldown[0x07]) >= 1 ) && ( !stfu ( client->guildcard ) ) )
-			{
-				client->command_cooldown[0x07] = (unsigned) servertime;
-				if ( client->lobbyNum < 0x10 )
-					max_send = 12;
-				else
-					max_send = 4;
-				for (ch=0;ch<max_send;ch++)
-				{
-					if ((l->slot_use[ch]) && (l->client[ch]))
-					{
-						ignored = 0;
-						lClient = l->client[ch];
-						for (ch2=0;ch2<lClient->ignore_count;ch2++)
-						{
-							if (lClient->ignore_list[ch2] == client->guildcard)
-							{
-								ignored = 1;
-								break;
-							}
-						}
-						if ( ( !ignored ) && ( lClient->guildcard != client->guildcard ) )
-						{
-							cipher_ptr = &lClient->server_cipher;
-							encryptcopy ( lClient, &client->decryptbuf[0x00], size );
-						}
-					}
-				}
-			}
-			break;
-		case 0x0A:
-			if ( client->lobbyNum > 0x0F )
-			{
-				// Player hit a monster
-				mid = *(unsigned short*) &client->decryptbuf[0x0A];
-				mid &= 0xFFF;
-				if ( ( mid < 0xB50 ) && ( l->floor[client->clientID] != 0 ) )
-				{
-					mHP = *(short*) &client->decryptbuf[0x0E];
-					l->monsterData[mid].HP = mHP;
-				}
-			}
-			else
-				client->todc = 1;
-			break;
-		case 0x1F:
-			// Remember client's position.
-			l->floor[client->clientID] = client->decryptbuf[0x0C];
-			break;
-		case 0x20:
-			// Remember client's position.
-			l->floor[client->clientID] = client->decryptbuf[0x0C];
-			l->clienty[client->clientID] = *(unsigned *) &client->decryptbuf[0x18];
-			l->clientx[client->clientID] = *(unsigned *) &client->decryptbuf[0x10];
-			break;
-		case 0x25:
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				itemid = *(unsigned *) &client->decryptbuf[0x0C];
-				EquipItem (itemid, client);
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0x26:
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				itemid = *(unsigned *) &client->decryptbuf[0x0C];
-				DeequipItem (itemid, client);
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0x27:
-			// Use item
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				itemid = *(unsigned *) &client->decryptbuf[0x0C];
-				UseItem (itemid, client);
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0x28:
-			// Mag feeding
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				magid = *(unsigned *) &client->decryptbuf[0x0C];
-				itemid = *(unsigned *) &client->decryptbuf[0x10];
-				feed_mag ( magid, itemid, client );
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0x29:
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				// Client dropping or destroying an item...
-				itemid = *(unsigned *) &client->decryptbuf[0x0C];
-				count = *(unsigned *) &client->decryptbuf[0x10];
-				if (client->drop_item == itemid)
-				{
-					client->drop_item = 0;
-					drop = 1;
-				}
-				else
-					drop = 0;
-				if (itemid != 0xFFFFFFFF)
-					DeleteItemFromClient (itemid, count, drop, client); // Item
-				else
-					DeleteMesetaFromClient (count, drop, client); // Meseta
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0x2A:
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				// Client dropping complete item
-				itemid = *(unsigned*) &client->decryptbuf[0x10];
-				DeleteItemFromClient (itemid, 0, 1, client);
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0x3E:
-		case 0x3F:
-			l->clientx[client->clientID] = *(unsigned *) &client->decryptbuf[0x14];
-			l->clienty[client->clientID] = *(unsigned *) &client->decryptbuf[0x1C];
-			break;
-		case 0x40:
-		case 0x42:
-			l->clientx[client->clientID] = *(unsigned *) &client->decryptbuf[0x0C];
-			l->clienty[client->clientID] = *(unsigned *) &client->decryptbuf[0x10];
-			client->dead = 0;
-			break;
-		case 0x47:
-		case 0x48:
-			if (l->floor[client->clientID] == 0)
-			{
-				Send1A ("Using techniques on Pioneer 2 is disallowed.", client);
-				dont_send = 1;
-				client->todc = 1;
-				break;
-			}
-			else
-				if (client->clientID == client->decryptbuf[0x0A])
-				{
-					if (client->equip_flags & DROID_FLAG)
-					{
-						Send1A ("Androids cannot cast techniques.", client);
-						dont_send = 1;
-						client->todc = 1;
-					}
-					else
-					{
-						if (client->decryptbuf[0x0C] > 18)
-						{
-							Send1A ("Invalid technique cast.", client);
-							dont_send = 1;
-							client->todc = 1;
-						}
-						else
-						{
-							if (max_tech_level[client->decryptbuf[0x0C]][client->character._class] == -1)
-							{
-								Send1A ("You cannot cast that technique.", client);
-								dont_send = 1;
-								client->todc = 1;
-							}
-						}
-					}
-				}
-			break;
-		case 0x4D:
-			// Decrease mag sync on death
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				client->dead = 1;
-				for (ch=0;ch<client->character.inventoryUse;ch++)
-				{
-					if ((client->character.inventory[ch].item.data[0] == 0x02) &&
-						(client->character.inventory[ch].flags & 0x08))
-					{
-						if (client->character.inventory[ch].item.data2[0] >= 5)
-							client->character.inventory[ch].item.data2[0] -= 5;
-						else
-							client->character.inventory[ch].item.data2[0] = 0;
-					}
-				}
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}		
-			break;
-		case 0x68:
-			// Telepipe check
-			if ( ( client->lobbyNum < 0x10 ) || ( client->decryptbuf[0x0E] > 0x11 ) )
-			{
-				Send1A ("Incorrect telepipe.", client);
-				dont_send = 1;
-				client->todc = 1;
-			}
-			break;
-		case 0x74:
-			// W/S (throttle for spam)
-			dont_send = 1;
-			if ( ( ((unsigned) servertime - client->command_cooldown[0x74]) >= 1 ) && ( !stfu ( client->guildcard ) ) )
-			{
-				client->command_cooldown[0x74] = (unsigned) servertime;
-				ws_ok = 1;
-				ws_data = *(unsigned short*) &client->decryptbuf[0x0C];
-				if ( ( ws_data == 0 ) || ( ws_data > 3 ) )
-					ws_ok = 0;
-				ws_data = *(unsigned short*) &client->decryptbuf[0x0E];
-				if ( ( ws_data == 0 ) || ( ws_data > 3 ) )
-					ws_ok = 0;
-				if ( ws_ok )
-				{
-					for (ch=0;ch<client->decryptbuf[0x0C];ch++)
-					{
-						ws_data = *(unsigned short*) &client->decryptbuf[0x10+(ch*2)];
-						if ( ws_data > 0x685 )
-						{
-							if ( ws_data > 0x697 )
-								ws_ok = 0;
-							else
-							{
-								ws_data -= 0x68C;
-								if ( ws_data >= l->lobbyCount )
-									ws_ok = 0;
-							}
-						}
-					}
-					ws_data = 0xFFFF;
-					for (ch=client->decryptbuf[0x0C];ch<8;ch++)
-						*(unsigned short*) &client->decryptbuf[0x10+(ch*2)] = ws_data;
-
-					if ( ws_ok ) 
-					{
-						if ( client->lobbyNum < 0x10 )
-							max_send = 12;
-						else
-							max_send = 4;
-
-						for (ch=0;ch<max_send;ch++)
-						{
-							if ((l->slot_use[ch]) && (l->client[ch]))
-							{
-								ignored = 0;
-								lClient = l->client[ch];
-								for (ch2=0;ch2<lClient->ignore_count;ch2++)
-								{
-									if (lClient->ignore_list[ch2] == client->guildcard)
-									{
-										ignored = 1;
-										break;
-									}
-								}
-								if ( ( !ignored ) && ( lClient->guildcard != client->guildcard ) )
-								{
-									cipher_ptr = &lClient->server_cipher;
-									encryptcopy ( lClient, &client->decryptbuf[0x00], size );
-								}
-							}
-						}
-					}
-				}
-			}
-			break;
-		case 0x75:
-			{
-				// Set player flag
-
-				unsigned short flag;
-
-				if (!client->decryptbuf[0x0E])
-				{
-					flag = *(unsigned short*) &client->decryptbuf[0x0C];
-					if ( flag < 1024 )
-						client->character.quest_data1[((unsigned)l->difficulty * 0x80) + (flag >> 3)] |= 1 << (7 - ( flag & 0x07 ));
-				}
-			}
-			break;
-		case 0xC0:
-			// Client selling item
-			if ( ( client->lobbyNum > 0x0F ) && ( l->floor[client->clientID] == 0 ) )
-			{
-				itemid = *(unsigned *) &client->decryptbuf[0x0C];
-				for (ch=0;ch<client->character.inventoryUse;ch++)
-				{
-					if (client->character.inventory[ch].item.itemid == itemid)
-					{
-						count = client->decryptbuf[0x10];
-						if ((count > 1) && (client->character.inventory[ch].item.data[0] != 0x03))
-							client->todc = 1;
-						else
-						{
-							shop_price = GetShopPrice ( &client->character.inventory[ch], weapon_atpmax_table, armor_dfpvar_table, armor_evpvar_table, equip_prices, barrier_dfpvar_table, barrier_evpvar_table ) * count;
-							DeleteItemFromClient ( itemid, count, 0, client );
-							if (!client->todc)
-							{
-								client->character.meseta += shop_price;
-								if ( client->character.meseta > 999999 )
-									client->character.meseta = 999999;
-							}
-						}
-						break;
-					}
-				}
-				if (client->todc)
-					dont_send = 1;
-			}
-			else
-			{
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0xC3:
-			// Client setting coordinates for stack drop
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				client->drop_area = *(unsigned *) &client->decryptbuf[0x0C];
-				client->drop_coords = *(long long*) &client->decryptbuf[0x10];
-				client->drop_item = *(unsigned *) &client->decryptbuf[0x18];
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0xC4:
-			// Inventory sort
-			if ( client->lobbyNum > 0x0F )
-			{
-				dont_send = 1;
-				SortClientItems ( client );
-			}
-			else
-				client->todc = 1;
-			break;
-		case 0xC5:
-			// Visiting hospital
-			if ( client->lobbyNum > 0x0F )
-				DeleteMesetaFromClient (10, 0, client);
-			else
-				client->todc = 1;
-			break;
-		case 0xC6:
-			// Steal Exp
-			if ( client->lobbyNum > 0x0F )
-			{
-				unsigned exp_percent = 0;
-				unsigned exp_to_add;
-				unsigned char special = 0;
-
-				mid = *(unsigned short*) &client->decryptbuf[0x0C];
-				mid &= 0xFFF;
-				if (mid < 0xB50)
-				{
-					for (ch=0;ch<client->character.inventoryUse;ch++)
-					{
-						if ((client->character.inventory[ch].flags & 0x08)	&&
-							(client->character.inventory[ch].item.data[0] == 0x00))
-						{
-							if ((client->character.inventory[ch].item.data[1] < 0x0A)	&&
-								(client->character.inventory[ch].item.data[2] < 0x05))
-								special = (client->character.inventory[ch].item.data[4] & 0x1F);
-							else
-								if ((client->character.inventory[ch].item.data[1] < 0x0D)	&&
-									(client->character.inventory[ch].item.data[2] < 0x04))
-									special = (client->character.inventory[ch].item.data[4] & 0x1F);
-								else
-									special = special_table[client->character.inventory[ch].item.data[1]]
-								[client->character.inventory[ch].item.data[2]];
-								switch (special)
-								{
-								case 0x09:
-									// Master's
-									exp_percent = 8;
-									break;
-								case 0x0A:
-									// Lord's
-									exp_percent = 10;
-									break;
-								case 0x0B:
-									// King's
-									exp_percent = 12;
-									if (( l->difficulty	== 0x03 ) &&
-										( client->equip_flags & DROID_FLAG ))
-										exp_percent += 30;
-									break;
-								}
-								break;
-						}
-					}
-
-					if (exp_percent)
-					{
-						exp_to_add = ( l->mapData[mid].exp * exp_percent ) / 100L;
-						if ( exp_to_add > 80 )  // Limit the amount of exp stolen to 80
-							exp_to_add = 80;
-						AddExp ( exp_to_add, client );
-					}
-				}
-			}
-			else
-				client->todc = 1;
-			break;
-		case 0xC7:
-			// Charge action
-			if ( client->lobbyNum > 0x0F )
-			{
-				int meseta;
-
-				meseta = *(int *) &client->decryptbuf[0x0C];
-				if (meseta > 0)
-				{
-					if (client->character.meseta >= (unsigned) meseta)
-						DeleteMesetaFromClient (meseta, 0, client);
-					else
-						DeleteMesetaFromClient (client->character.meseta, 0, client);
-				}
-				else
-				{
-					meseta = -meseta;
-					client->character.meseta += (unsigned) meseta;
-					if ( client->character.meseta > 999999 )
-						client->character.meseta = 999999;
-				}
-			}
-			else
-				client->todc = 1;
-			break;
-		case 0xC8:
-			// Monster is dead
-			if ( client->lobbyNum > 0x0F )
-			{
-				mid = *(unsigned short*) &client->decryptbuf[0x0A];
-				mid &= 0xFFF;
-				if ( mid < 0xB50 )
-				{
-					if ( l->monsterData[mid].dead[client->clientID] == 0 )
-					{
-						l->monsterData[mid].dead[client->clientID] = 1;
-
-						XP = l->mapData[mid].exp * experience_rate;
-
-						if (!l->quest_loaded)
-						{
-							mid_mismatch = 0;
-
-							switch ( l->episode )
-							{
-							case 0x01:
-								if ( l->floor[client->clientID] > 10 )
-								{
-									switch ( l->floor[client->clientID] )
-									{
-									case 11:
-										// Dragon
-										if ( l->mapData[mid].base != 192 )
-											mid_mismatch = 1;
-										break;
-									case 12:
-										// De Rol Le
-										if ( l->mapData[mid].base != 193 )
-											mid_mismatch = 1;
-										break;
-									case 13:
-										// Vol Opt
-										if ( ( l->mapData[mid].base != 197 ) && ( l->mapData[mid].base != 194 ) )
-											mid_mismatch = 1;
-										break;
-									case 14:
-										// Dark Falz
-										if ( l->mapData[mid].base != 200 )
-											mid_mismatch = 1;
-										break;
-									}
-								}
-								break;
-							case 0x02:
-								if ( l->floor[client->clientID] > 10 )
-								{
-									switch ( l->floor[client->clientID] )
-									{
-									case 12:
-										// Gal Gryphon
-										if ( l->mapData[mid].base != 192 )
-											mid_mismatch = 1;
-										break;
-									case 13:
-										// Olga Flow
-										if ( l->mapData[mid].base != 202 )
-											mid_mismatch = 1;
-										break;
-									case 14:
-										// Barba Ray
-										if ( l->mapData[mid].base != 203 )
-											mid_mismatch = 1;
-										break;
-									case 15:
-										// Gol Dragon
-										if ( l->mapData[mid].base != 204 )
-											mid_mismatch = 1;
-										break;
-									}
-								}
-								break;
-							case 0x03:
-								if ( ( l->floor[client->clientID] == 9 ) &&
-									( l->mapData[mid].base != 280 ) && 
-									( l->mapData[mid].base != 281 ) && 
-									( l->mapData[mid].base != 41 ) )
-									mid_mismatch = 1;
-								break;
-							}
-
-							if ( mid_mismatch )
-							{
-								SendEE ("Client/server data synchronization error.  Please reinstall your client and all patches.", client);
-								client->todc = 1;
-							}
-						}
-
-						//debug ("mid death: %u  base: %u, skin: %u, reserved11: %f, exp: %u", mid, l->mapData[mid].base, l->mapData[mid].skin, l->mapData[mid].reserved11, XP);
-
-						if ( client->decryptbuf[0x10] != 1 ) // Not the last player who hit?
-							XP = ( XP * 77 ) / 100L;
-
-						if ( client->character.level < 199 )
-							AddExp ( XP, client );
-
-						// Increase kill counters for SJS, Lame d'Argent, Limiter and Swordsman Lore
-
-						for (ch=0;ch<client->character.inventoryUse;ch++)
-						{
-							if (client->character.inventory[ch].flags & 0x08)
-							{
-								counter = 0;
-								switch (client->character.inventory[ch].item.data[0])
-								{
-								case 0x00:
-									if ((client->character.inventory[ch].item.data[1] == 0x33) ||
-										(client->character.inventory[ch].item.data[1] == 0xAB))
-										counter = 1;
-									break;
-								case 0x01:
-									if ((client->character.inventory[ch].item.data[1] == 0x03) &&
-										((client->character.inventory[ch].item.data[2] == 0x4D) ||
-										(client->character.inventory[ch].item.data[2] == 0x4F)))
-										counter = 1;
-									break;
-								default:
-									break;
-								}
-								if (counter)
-								{
-									counter = *(unsigned short*) &client->character.inventory[ch].item.data[10];
-									if (counter < 0x8000)
-										counter = 0x8000;
-									counter++;
-									*(unsigned short*) &client->character.inventory[ch].item.data[10] = counter;
-								}
-							}
-						}
-					}
-				}
-			}
-			else
-				client->todc = 1;
-			break;
-		case 0xCC:
-			// Exchange item for team points
-			{
-				unsigned deleteid;
-
-				deleteid = *(unsigned*) &client->decryptbuf[0x0C];
-				DeleteItemFromClient (deleteid, 1, 0, client);
-				if (!client->todc)
-				{
-					SendB0 ("Item donated to server.", client);
-				}
-			}
-			break;
-		case 0xCF:
-			if ((l->battle) && (client->mode))
-			{
-				// Battle restarting...
-				//
-				// If rule #1 we'll copy the character backup to the character array, otherwise
-				// we'll reset the character...
-				//
-				for (ch=0;ch<4;ch++)
-				{
-					if ((l->slot_use[ch]) && (l->client[ch]))
-					{
-						lClient = l->client[ch];
-						switch (lClient->mode)
-						{
-						case 0x01:
-						case 0x02:
-							// Copy character backup
-							if (lClient->character_backup)
-								memcpy (&lClient->character, lClient->character_backup, sizeof (lClient->character));
-							if (lClient->mode == 0x02)
-							{
-								for (ch2=0;ch2<lClient->character.inventoryUse;ch2++)
-								{
-									if (lClient->character.inventory[ch2].item.data[0] == 0x02)
-										lClient->character.inventory[ch2].in_use = 0;
-								}
-								CleanUpInventory (lClient);
-								lClient->character.meseta = 0;
-							}
-							break;
-						case 0x03:
-							// Wipe items and reset level.
-							for (ch2=0;ch2<30;ch2++)
-								lClient->character.inventory[ch2].in_use = 0;
-							CleanUpInventory (lClient);
-							lClient->character.level = 0;
-							lClient->character.XP = 0;
-							lClient->character.ATP = *(unsigned short*) &startingData[(lClient->character._class*14)];
-							lClient->character.MST = *(unsigned short*) &startingData[(lClient->character._class*14)+2];
-							lClient->character.EVP = *(unsigned short*) &startingData[(lClient->character._class*14)+4];
-							lClient->character.HP  = *(unsigned short*) &startingData[(lClient->character._class*14)+6];
-							lClient->character.DFP = *(unsigned short*) &startingData[(lClient->character._class*14)+8];
-							lClient->character.ATA = *(unsigned short*) &startingData[(lClient->character._class*14)+10];
-							if (l->battle_level > 1)
-								SkipToLevel (l->battle_level - 1, lClient, 1);
-							lClient->character.meseta = 0;
-							break;
-						default:
-							// Unknown mode?
-							break;
-						}
-					}
-				}
-				// Reset boxes and monsters...
-				memset (&l->boxHit, 0, 0xB50); // Reset box and monster data
-				memset (&l->monsterData, 0, sizeof (l->monsterData));
-			}
-			break;
-		case 0xD2:
-			// Gallon seems to write to this area...
-			dont_send = 1;
-			if ( client->lobbyNum > 0x0F )
-			{
-				unsigned qofs;
-
-				qofs = *(unsigned *) &client->decryptbuf[0x0C];
-				if (qofs < 23)
-				{
-					qofs *= 4;
-					*(unsigned *) &client->character.quest_data2[qofs] = *(unsigned*) &client->decryptbuf[0x10];
-					memcpy ( &client->encryptbuf[0x00], &client->decryptbuf[0x00], 0x14 );
-					cipher_ptr = &client->server_cipher;
-					encryptcopy ( client, &client->decryptbuf[0x00], 0x14 );
-				}
-			}
-			else
-			{
-				dont_send = 1;
-				client->todc = 1;
-			}
-			break;
-		case 0xD5:
-			// Exchange an item
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				INVENTORY_ITEM work_item;
-				unsigned compare_item = 0, ci;
-
-				memset (&work_item, 0, sizeof (INVENTORY_ITEM));
-				memcpy (&work_item.item.data[0], &client->decryptbuf[0x0C], 3 );
-				DeleteFromInventory (&work_item, 1, client);
-
-				if (!client->todc)
-				{
-					memset (&work_item, 0, sizeof (INVENTORY_ITEM));
-					memcpy (&compare_item, &client->decryptbuf[0x20], 3 );
-					for ( ci = 0; ci < quest_numallows; ci ++)
-					{
-						if (compare_item == quest_allow[ci])
-						{
-							memcpy (&work_item.item.data[0], &client->decryptbuf[0x20], 3 );
-							work_item.item.itemid = l->playerItemID[client->clientID];
-							l->playerItemID[client->clientID]++;
-							AddToInventory (&work_item, 1, 0, client);
-							memset (&client->encryptbuf[0x00], 0, 0x0C);
-							client->encryptbuf[0x00] = 0x0C;
-							client->encryptbuf[0x02] = 0xAB;
-							client->encryptbuf[0x03] = 0x01;
-							// BLAH :)
-							*(unsigned short*) &client->encryptbuf[0x08] = *(unsigned short*) &client->decryptbuf[0x34];
-							cipher_ptr = &client->server_cipher;
-							encryptcopy (client, &client->encryptbuf[0x00], 0x0C);
-							break;
-						}
-					}
-					if ( !work_item.item.itemid )
-					{
-						Send1A ("Attempting to exchange for disallowed item.", client);
-						client->todc = 1;
-					}
-				}
-			}
-			else
-			{
-				dont_send = 1;
-				client->todc = 1;
-			}
-			break;
-		case 0xD7:
-			// Trade PDs for an item from Hopkins' dad
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				INVENTORY_ITEM work_item;
-				unsigned ci, compare_item = 0;
-
-				memset ( &work_item, 0, sizeof (INVENTORY_ITEM) );
-				memcpy ( &compare_item, &client->decryptbuf[0x0C], 3 );
-				for ( ci = 0; ci < (sizeof (gallons_shop_hopkins) / 4); ci += 2)
-				{
-					if (compare_item == gallons_shop_hopkins[ci])
-					{
-						work_item.item.data[0] = 0x03;
-						work_item.item.data[1] = 0x10;
-						work_item.item.data[2] = 0x00;
-						break;
-					}
-				}
-				if ( work_item.item.data[0] == 0x03 )
-				{
-					DeleteFromInventory (&work_item, 0xFF, client); // Delete all Photon Drops
-					if (!client->todc)
-					{
-						memcpy (&work_item.item.data[0], &client->decryptbuf[0x0C], 12);
-						*(unsigned *) &work_item.item.data2[0] = *(unsigned *) &client->decryptbuf[0x18];
-						work_item.item.itemid = l->playerItemID[client->clientID];
-						l->playerItemID[client->clientID]++;
-						AddToInventory (&work_item, 1, 0, client);
-						memset (&client->encryptbuf[0x00], 0, 0x0C);
-						// I guess this is a sort of action confirmed by server thing...
-						// Also starts an animation and sound... with the wrong values, the camera pans weirdly...
-						client->encryptbuf[0x00] = 0x0C;
-						client->encryptbuf[0x02] = 0xAB;
-						client->encryptbuf[0x03] = 0x01;
-						*(unsigned short*) &client->encryptbuf[0x08] = *(unsigned short*) &client->decryptbuf[0x20];
-						cipher_ptr = &client->server_cipher;
-						encryptcopy (client, &client->encryptbuf[0x00], 0x0C);
-					}
-				}
-				else
-				{
-					Send1A ("No photon drops in user's inventory\nwhen encountering exchange command.", client);
-					dont_send = 1;
-					client->todc = 1;
-				}
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0xD8:
-			// Add attribute to S-rank weapon (not implemented yet)
-			break;
-		case 0xD9:
-			// Momoka Item Exchange
-			{
-				unsigned compare_item, ci;
-				unsigned itemid = 0;
-				INVENTORY_ITEM add_item;
-
-				dont_send = 1;
-
-				if ( client->lobbyNum > 0x0F )
-				{
-					compare_item = 0x00091203;
-					for ( ci=0; ci < client->character.inventoryUse; ci++)
-					{
-						if ( *(unsigned *) &client->character.inventory[ci].item.data[0] == compare_item )
-						{
-							itemid = client->character.inventory[ci].item.itemid;
-							break;
-						}
-					}
-					if (!itemid)
-					{
-						memset (&client->encryptbuf[0x00], 0, 8);
-						client->encryptbuf[0x00] = 0x08;
-						client->encryptbuf[0x02] = 0x23;
-						client->encryptbuf[0x04] = 0x01;
-						cipher_ptr = &client->server_cipher;
-						encryptcopy (client, &client->encryptbuf[0x00], 8);
-					}
-					else
-					{
-						memset (&add_item, 0, sizeof (INVENTORY_ITEM));
-						compare_item = *(unsigned *) &client->decryptbuf[0x20];
-						for ( ci=0; ci < quest_numallows; ci++)
-						{
-							if ( compare_item == quest_allow[ci] )
-							{
-								*(unsigned *) &add_item.item.data[0] = *(unsigned *) &client->decryptbuf[0x20];
-								break;
-							}
-						}
-						if (*(unsigned *) &add_item.item.data[0] == 0)
-						{
-							client->todc = 1;
-							Send1A ("Requested item not allowed.", client);
-						}
-						else
-						{
-							DeleteItemFromClient (itemid, 1, 0, client);
-							memset (&client->encryptbuf[0x00], 0, 0x18);
-							client->encryptbuf[0x00] = 0x18;
-							client->encryptbuf[0x02] = 0x60;
-							client->encryptbuf[0x08] = 0xDB;
-							client->encryptbuf[0x09] = 0x06;
-							client->encryptbuf[0x0C] = 0x01;
-							*(unsigned *) &client->encryptbuf[0x10] = itemid;
-							client->encryptbuf[0x14] = 0x01;
-							cipher_ptr = &client->server_cipher;
-							encryptcopy (client, &client->encryptbuf[0x00], 0x18);
-
-							// Let everybody else know that item no longer exists...
-
-							memset (&client->encryptbuf[0x00], 0, 0x14);
-							client->encryptbuf[0x00] = 0x14;
-							client->encryptbuf[0x02] = 0x60;
-							client->encryptbuf[0x08] = 0x29;
-							client->encryptbuf[0x09] = 0x05;
-							client->encryptbuf[0x0A] = client->clientID;
-							*(unsigned *) &client->encryptbuf[0x0C] = itemid;
-							client->encryptbuf[0x10] = 0x01;
-							SendToLobby ( l, 4, &client->encryptbuf[0x00], 0x14, client->guildcard );
-							add_item.item.itemid = l->playerItemID[client->clientID];
-							l->playerItemID[client->clientID]++;
-							AddToInventory (&add_item, 1, 0, client);
-							memset (&client->encryptbuf[0x00], 0, 8);
-							client->encryptbuf[0x00] = 0x08;
-							client->encryptbuf[0x02] = 0x23;
-							client->encryptbuf[0x04] = 0x00;
-							cipher_ptr = &client->server_cipher;
-							encryptcopy (client, &client->encryptbuf[0x00], 8);
-						}
-					}
-				}
-			}
-			break;
-		case 0xDA:
-			// Upgrade Photon of weapon
-			if ( ( client->lobbyNum > 0x0F ) && ( client->decryptbuf[0x0A] == client->clientID ) )
-			{
-				INVENTORY_ITEM work_item, work_item2;
-				unsigned ci, ai,
-					compare_itemid = 0, compare_item1 = 0, compare_item2 = 0, num_attribs = 0;
-				char attrib_add;
-
-				memcpy ( &compare_item1,  &client->decryptbuf[0x0C], 3);
-				compare_itemid = *(unsigned *) &client->decryptbuf[0x20];
-				for ( ci=0; ci < client->character.inventoryUse; ci++)
-				{
-					memcpy (&compare_item2, &client->character.inventory[ci].item.data[0], 3);
-					if ( ( client->character.inventory[ci].item.itemid == compare_itemid ) && 
-						( compare_item1 == compare_item2 ) && ( client->character.inventory[ci].item.data[0] == 0x00 ) )
-					{
-						memset (&work_item, 0, sizeof (INVENTORY_ITEM));
-						work_item.item.data[0] = 0x03;
-						work_item.item.data[1] = 0x10;
-						if ( client->decryptbuf[0x2C] )
-							work_item.item.data[2] = 0x01;
-						else
-							work_item.item.data[2] = 0x00;
-						// Copy before shift
-						memcpy ( &work_item2, &client->character.inventory[ci], sizeof (INVENTORY_ITEM) );
-						DeleteFromInventory ( &work_item, client->decryptbuf[0x28], client );
-						if (!client->todc)
-						{
-							switch (client->decryptbuf[0x28])
-							{
-							case 0x01:
-								// 1 PS = 30%
-								if ( client->decryptbuf[0x2C] )
-									attrib_add = 30;
-								break;
-							case 0x04:
-								// 4 PDs = 1%
-								attrib_add = 1;
-								break;
-							case 0x14:
-								// 20 PDs = 5%
-								attrib_add = 5;
-								break;
-							default:
-								attrib_add = 0;
-								break;
-							}
-							ai = 0;
-							if ((work_item2.item.data[6] > 0x00) && 
-								(!(work_item2.item.data[6] & 128)))
-							{
-								num_attribs++;
-								if (work_item2.item.data[6] == client->decryptbuf[0x24])
-									ai = 7;
-							}
-							if ((work_item2.item.data[8] > 0x00) && 
-								(!(work_item2.item.data[8] & 128)))
-							{
-								num_attribs++;
-								if (work_item2.item.data[8] == client->decryptbuf[0x24])
-									ai = 9;
-							}
-							if ((work_item2.item.data[10] > 0x00) && 
-								(!(work_item2.item.data[10] & 128)))
-							{
-								num_attribs++;
-								if (work_item2.item.data[10] == client->decryptbuf[0x24])
-									ai = 11;
-							}
-							if (ai)
-							{
-								// Attribute already on weapon, increase it
-								(char) work_item2.item.data[ai] += attrib_add;
-								if (work_item2.item.data[ai] > 100)
-									work_item2.item.data[ai] = 100;
-							}
-							else
-							{
-								// Attribute not on weapon, add it if there isn't already 3 attributes
-								if (num_attribs < 3)
-								{
-									work_item2.item.data[6 + (num_attribs * 2)] = client->decryptbuf[0x24];
-									(char) work_item2.item.data[7 + (num_attribs * 2)] = attrib_add;
-								}
-							}
-							DeleteItemFromClient ( work_item2.item.itemid, 1, 0, client );
-							memset (&client->encryptbuf[0x00], 0, 0x14);
-							client->encryptbuf[0x00] = 0x14;
-							client->encryptbuf[0x02] = 0x60;
-							client->encryptbuf[0x08] = 0x29;
-							client->encryptbuf[0x09] = 0x05;
-							client->encryptbuf[0x0A] = client->clientID;
-							*(unsigned *) &client->encryptbuf[0x0C] = work_item2.item.itemid;
-							client->encryptbuf[0x10] = 0x01;
-							SendToLobby ( client->lobby, 4, &client->encryptbuf[0x00], 0x14, 0 );
-							AddToInventory ( &work_item2, 1, 0, client );
-							memset (&client->encryptbuf[0x00], 0, 0x0C);
-							// Don't know...
-							client->encryptbuf[0x00] = 0x0C;
-							client->encryptbuf[0x02] = 0xAB;
-							client->encryptbuf[0x03] = 0x01;
-							*(unsigned short*) &client->encryptbuf[0x08] = *(unsigned short*) &client->decryptbuf[0x30];
-							cipher_ptr = &client->server_cipher;
-							encryptcopy (client, &client->encryptbuf[0x00], 0x0C);
-						}
-						break;
-					}
-				}
-				if (client->todc)
-					dont_send = 1;
-			}
-			else
-			{
-				dont_send = 1;
-				if ( client->lobbyNum < 0x10 )
-					client->todc = 1;
-			}
-			break;
-		case 0xDE:
-			// Good Luck
-			{
-				unsigned compare_item, ci;
-				unsigned itemid = 0;
-				INVENTORY_ITEM add_item;
-
-				dont_send = 1;
-
-				if ( client->lobbyNum > 0x0F )
-				{
-					compare_item = 0x00031003;
-					for ( ci=0; ci < client->character.inventoryUse; ci++)
-					{
-						if ( *(unsigned *) &client->character.inventory[ci].item.data[0] == compare_item )
-						{
-							itemid = client->character.inventory[ci].item.itemid;
-							break;
-						}
-					}
-					if (!itemid)
-					{
-						memset (&client->encryptbuf[0x00], 0, 0x2C);
-						client->encryptbuf[0x00] = 0x2C;
-						client->encryptbuf[0x02] = 0x24;
-						client->encryptbuf[0x04] = 0x01;
-						client->encryptbuf[0x08] = client->decryptbuf[0x0E];
-						client->encryptbuf[0x0A] = client->decryptbuf[0x0D];
-						for (ci=0;ci<8;ci++)
-							client->encryptbuf[0x0C + (ci << 2)] = (mt_lrand() % (sizeof(good_luck) >> 2)) + 1;
-						cipher_ptr = &client->server_cipher;
-						encryptcopy (client, &client->encryptbuf[0x00], 0x2C);
-					}
-					else
-					{
-						memset (&add_item, 0, sizeof (INVENTORY_ITEM));
-						*(unsigned *) &add_item.item.data[0] = good_luck[mt_lrand() % (sizeof(good_luck) >> 2)];
-						DeleteItemFromClient (itemid, 1, 0, client);
-						memset (&client->encryptbuf[0x00], 0, 0x18);
-						client->encryptbuf[0x00] = 0x18;
-						client->encryptbuf[0x02] = 0x60;
-						client->encryptbuf[0x08] = 0xDB;
-						client->encryptbuf[0x09] = 0x06;
-						client->encryptbuf[0x0C] = 0x01;
-						*(unsigned *) &client->encryptbuf[0x10] = itemid;
-						client->encryptbuf[0x14] = 0x01;
-						cipher_ptr = &client->server_cipher;
-						encryptcopy (client, &client->encryptbuf[0x00], 0x18);
-
-						// Let everybody else know that item no longer exists...
-
-						memset (&client->encryptbuf[0x00], 0, 0x14);
-						client->encryptbuf[0x00] = 0x14;
-						client->encryptbuf[0x02] = 0x60;
-						client->encryptbuf[0x08] = 0x29;
-						client->encryptbuf[0x09] = 0x05;
-						client->encryptbuf[0x0A] = client->clientID;
-						*(unsigned *) &client->encryptbuf[0x0C] = itemid;
-						client->encryptbuf[0x10] = 0x01;
-						SendToLobby ( l, 4, &client->encryptbuf[0x00], 0x14, client->guildcard );
-						add_item.item.itemid = l->playerItemID[client->clientID];
-						l->playerItemID[client->clientID]++;
-						AddToInventory (&add_item, 1, 0, client);
-						memset (&client->encryptbuf[0x00], 0, 0x2C);
-						client->encryptbuf[0x00] = 0x2C;
-						client->encryptbuf[0x02] = 0x24;
-						client->encryptbuf[0x04] = 0x00;
-						client->encryptbuf[0x08] = client->decryptbuf[0x0E];
-						client->encryptbuf[0x0A] = client->decryptbuf[0x0D];
-						for (ci=0;ci<8;ci++)
-							client->encryptbuf[0x0C + (ci << 2)] = (mt_lrand() % (sizeof(good_luck) >> 2)) + 1;
-						cipher_ptr = &client->server_cipher;
-						encryptcopy (client, &client->encryptbuf[0x00], 0x2C);
-					}
-				}
-			}
-			break;
-		case 0xE1:
-			{
-				// Gallon's Plan opcode
-
-				INVENTORY_ITEM work_item;
-				unsigned ch, compare_item1, compare_item2, pt_itemid;
-
-				compare_item2 = 0;
-				compare_item1 = 0x041003;
-				pt_itemid = 0;
-
-				for (ch=0;ch<client->character.inventoryUse;ch++)
-				{
-					memcpy (&compare_item2, &client->character.inventory[ch].item.data[0], 3);
-					if (compare_item1 == compare_item2)
-					{
-						pt_itemid = client->character.inventory[ch].item.itemid;
-						break;
-					}
-				}
-
-				if (!pt_itemid)
-					client->todc = 1;
-
-				if (!client->todc)
-				{
-					memset ( &work_item, 0, sizeof (INVENTORY_ITEM) );
-					switch (client->decryptbuf[0x0E])
-					{
-					case 0x01:
-						// Kan'ei Tsuho
-						DeleteItemFromClient (pt_itemid, 10, 0, client); // Delete Photon Tickets
-						if (!client->todc)
-						{
-							work_item.item.data[0] = 0x00;
-							work_item.item.data[1] = 0xD5;
-							work_item.item.data[2] = 0x00;
-						}
-						break;
-					case 0x02:
-						// Lollipop
-						DeleteItemFromClient (pt_itemid, 15, 0, client); // Delete Photon Tickets
-						if (!client->todc)
-						{
-							work_item.item.data[0] = 0x00;
-							work_item.item.data[1] = 0x0A;
-							work_item.item.data[2] = 0x07;
-						}
-						break;
-					case 0x03:
-						// Stealth Suit
-						DeleteItemFromClient (pt_itemid, 20, 0, client); // Delete Photon Tickets
-						if (!client->todc)
-						{
-							work_item.item.data[0] = 0x01;
-							work_item.item.data[1] = 0x01;
-							work_item.item.data[2] = 0x57;
-						}
-						break;
-					default:
-						client->todc = 1;
-						break;
-					}
-
-					if (!client->todc)
-					{
-						memset (&client->encryptbuf[0x00], 0, 0x18);
-						client->encryptbuf[0x00] = 0x18;
-						client->encryptbuf[0x02] = 0x60;
-						client->encryptbuf[0x08] = 0xDB;
-						client->encryptbuf[0x09] = 0x06;
-						client->encryptbuf[0x0C] = 0x01;
-						*(unsigned *) &client->encryptbuf[0x10] = pt_itemid;
-						client->encryptbuf[0x14] = 0x05 + ( client->decryptbuf[0x0E] * 5 );
-						cipher_ptr = &client->server_cipher;
-						encryptcopy ( client, &client->encryptbuf[0x00], 0x18 );
-						work_item.item.itemid = l->playerItemID[client->clientID];
-						l->playerItemID[client->clientID]++;
-						AddToInventory (&work_item, 1, 0, client);
-						// Gallon's Plan result
-						memset (&client->encryptbuf[0x00], 0, 0x10);
-						client->encryptbuf[0x00] = 0x10;
-						client->encryptbuf[0x02] = 0x25;
-						client->encryptbuf[0x08] = client->decryptbuf[0x10];
-						client->encryptbuf[0x0A] = 0x3C;
-						client->encryptbuf[0x0B] = 0x08;
-						client->encryptbuf[0x0D] = client->decryptbuf[0x0E];
-						client->encryptbuf[0x0E] = 0x9A;
-						client->encryptbuf[0x0F] = 0x08;
-						cipher_ptr = &client->server_cipher;
-						encryptcopy (client, &client->encryptbuf[0x00], 0x10);
-					}
-				}
-			}
-			break;
-		case 0x17:
-		case 0x18:
-			boss_floor = 0;
-			switch (l->episode)
-			{
-			case 0x01:
-				if ((l->floor[client->clientID] > 10) && (l->floor[client->clientID] < 15))
-					boss_floor = 1;
-				break;
-			case 0x02:
-				if ((l->floor[client->clientID] > 11) && (l->floor[client->clientID] < 16))
-					boss_floor = 1;
-				break;
-			case 0x03:
-				if (l->floor[client->clientID] == 9)
-					boss_floor = 1;
-				break;
-			}
-			if (!boss_floor)
-				dont_send = 1;
-			break;
-		default:
-			/* Temporary
-			debug ("0x60 from %u:", client->guildcard);
-			display_packet (&client->decryptbuf[0x00], size);
-			write_log ("0x60 from %u\n%s\n\n:", client->guildcard, (char*) &dp[0]);
-			*/
-			break;
-		}
-		if ((!dont_send) && (!client->todc))
-		{
-			if ( client->lobbyNum < 0x10 )				
-				SendToLobby ( client->lobby, 12, &client->decryptbuf[0], size, client->guildcard);
-			else
-				SendToLobby ( client->lobby, 4, &client->decryptbuf[0], size, client->guildcard);
-		}
-	}
-}
-
-void Send6D (PSO_CLIENT* client)
-{
-	PSO_CLIENT* lClient;
-	unsigned short size;
-	unsigned short sizecheck = 0;
-	unsigned char t;
-	int dont_send = 0;
-	LOBBY* l;
-
-	if (!client->lobby)
-		return;
-
-	size = *(unsigned short*) &client->decryptbuf[0x00];
-	sizecheck = *(unsigned short*) &client->decryptbuf[0x0C];
-	sizecheck += 8;
-
-	if (size != sizecheck)
-	{
-		debug ("Client sent a 0x6D packet whose sizecheck != size.\n");
-		debug ("Command: %02X | Size: %04X | Sizecheck: %04x\n", client->decryptbuf[0x08],
-			size, sizecheck);
-		dont_send = 1;
-	}
-
-	l = (LOBBY*) client->lobby;
-	t = client->decryptbuf[0x04];
-	if (t >= 0x04)
-		dont_send = 1;
-
-	if (!dont_send)
-	{
-		switch (client->decryptbuf[0x08])
-		{
-		case 0x70:
-			if (client->lobbyNum > 0x0F)
-			{
-				if ((l->slot_use[t]) && (l->client[t]))
-				{
-					if (l->client[t]->bursting == 1)
-					{
-						unsigned ch;
-
-						dont_send = 0; // It's cool to send them as long as this user is bursting.
-
-						// Let's reconstruct the 0x70 as much as possible.
-						//
-						// Could check guild card # here
-						*(unsigned *) &client->decryptbuf[0x7C] = client->guildcard;
-						// Check techniques...
-						if (!(client->equip_flags & DROID_FLAG))
-						{
-							for (ch=0;ch<19;ch++)
-							{
-								if ((char) client->decryptbuf[0xC4+ch] > max_tech_level[ch][client->character._class])
-								{
-									(char) client->character.techniques[ch] = -1; // Unlearn broken technique.
-									client->todc = 1;
-								}
-							}
-							if (client->todc)
-								Send1A ("Technique data check failed.\n\nSome techniques have been unlearned.", client);
-						}
-						memcpy (&client->decryptbuf[0xC4], &client->character.techniques, 20);
-						// Could check character structure here
-						memcpy (&client->decryptbuf[0xD8], &client->character.gcString, 104);
-						// Prevent crashing with NPC skins...
-						if (client->character.skinFlag)
-							memset (&client->decryptbuf[0x110], 0, 10);
-						// Could check stats here
-						memcpy (&client->decryptbuf[0x148], &client->character.ATP, 36);
-						// Could check inventory here
-						client->decryptbuf[0x16C] = client->character.inventoryUse;
-						memcpy (&client->decryptbuf[0x170], &client->character.inventory[0], 30 * sizeof (INVENTORY_ITEM) );
-					}
-				}
-			}
-			break;
-		case 0x6B:
-		case 0x6C:
-		case 0x6D:
-		case 0x6E:
-		case 0x72:
-			if (client->lobbyNum > 0x0F)
-			{
-				if (l->leader == client->clientID)
-				{
-					if ((l->slot_use[t]) && (l->client[t]))
-					{
-						if (l->client[t]->bursting == 1)
-							dont_send = 0; // It's cool to send them as long as this user is bursting and we're the leader.
-					}
-				}
-			}
-			break;
-		default:
-			dont_send = 1;
-			break;
-		}
-	}
-
-	if ( dont_send == 0 )
-	{
-		lClient = l->client[t];
-		cipher_ptr = &lClient->server_cipher;
-		encryptcopy (lClient, &client->decryptbuf[0], size);
-	}
-}
-
-void Send01 (const char *text, PSO_CLIENT* client)
-{
-	unsigned short mesgOfs = 0x10;
-	unsigned ch;
-
-	memset(&PacketData[0], 0, 16);
-	PacketData[mesgOfs++] = 0x09;
-	PacketData[mesgOfs++] = 0x00;
-	PacketData[mesgOfs++] = 0x45;
-	PacketData[mesgOfs++] = 0x00;
-	for (ch=0;ch<strlen(text);ch++)
-	{
-		PacketData[mesgOfs++] = text[ch];
-		PacketData[mesgOfs++] = 0x00;
-	}
-	PacketData[mesgOfs++] = 0x00;
-	PacketData[mesgOfs++] = 0x00;
-	while (mesgOfs % 8)
-		PacketData[mesgOfs++] = 0x00;
-	*(unsigned short*) &PacketData[0] = mesgOfs;
-	PacketData[0x02] = 0x01;
-	cipher_ptr = &client->server_cipher;
-	encryptcopy (client, &PacketData[0], mesgOfs);
-}
-
-void Send06 (PSO_CLIENT* client)
-{
-	FILE* fp;
-	unsigned short chatsize;
-	unsigned pktsize;
-	unsigned ch, ch2;
-	unsigned char stackable, count;
-	unsigned short *n;
-	unsigned short target;
-	unsigned myCmdArgs, itemNum, connectNum, gc_num;
-	unsigned short npcID;
-	unsigned max_send;
-	PSO_CLIENT* lClient;
-	int i, z, commandLen, ignored, found_ban, writeData;
-	LOBBY* l;
-	INVENTORY_ITEM ii;
-
-	writeData = 0;
-	fp = NULL;
-
-	if (!client->lobby)
-		return;
-
-	l = client->lobby;
-
-	pktsize = *(unsigned short*) &client->decryptbuf[0x00];
-
-	if (pktsize > 0x100)
-		return;
-
-	memset (&chatBuf[0x00], 0, 0x0A);
-
-	chatBuf[0x02] = 0x06;
-	chatBuf[0x0A] = client->clientID;
-	*(unsigned *) &chatBuf[0x0C] = client->guildcard;
-	chatsize = 0x10;
-	n = (unsigned short*) &client->character.name[4];
-	for (ch=0;ch<10;ch++)
-	{
-		if (*n == 0x0000)
-			break;
-		*(unsigned short*) &chatBuf[chatsize] = *n;
-		chatsize += 2;
-		n++;
-	}
-	chatBuf[chatsize++] = 0x09;
-	chatBuf[chatsize++] = 0x00;
-	chatBuf[chatsize++] = 0x09;
-	chatBuf[chatsize++] = 0x00;
-	n = (unsigned short*) &client->decryptbuf[0x12];
-	if ((*(n+1) == 0x002F) && (*(n+2) != 0x002F))
-	{
-		commandLen = 0;
-
-		for (ch=0;ch<(pktsize - 0x14);ch+= 2)
-		{
-			if (client->decryptbuf[(0x14+ch)] != 0x00)
-				cmdBuf[commandLen++] = client->decryptbuf[(0x14+ch)];
-			else
-				break;
-		}
-
-		cmdBuf[commandLen] = 0;
-
-		myCmdArgs = 0;
-		myCommand = &cmdBuf[1];
-
-		if ( ( i = strcspn ( &cmdBuf[1], " ," ) ) != ( strlen ( &cmdBuf[1] ) ) )
-		{
-			i++;
-			cmdBuf[i++] = 0;
-			while ( ( i < commandLen ) && ( myCmdArgs < 64 ) )
-			{
-				z = strcspn ( &cmdBuf[i], "," );
-				myArgs[myCmdArgs++] = &cmdBuf[i];
-				i += z;
-				cmdBuf[i++] = 0;
-			}
-		}
-
-		if ( commandLen )
-		{
-
-			if ( !strcmp ( myCommand, "debug" ) )
-				writeData = 1;
-
-			if ( !strcmp ( myCommand, "setpass" ) )
-			{
-				if (!client->lobbyNum < 0x10)
-				{
-					if ( myCmdArgs == 0 )
-						SendB0 ("Need new password.", client);
-					else
-					{
-						ch = 0;
-						while (myArgs[0][ch] != 0)
-						{
-							l->gamePassword [ch*2] = myArgs[0][ch];
-							l->gamePassword [(ch*2)+1] = 0;
-							ch++;
-							if (ch==31) break; // Limit amount of characters...
-						}
-						l->gamePassword[ch*2] = 0;
-						l->gamePassword[(ch*2)+1] = 0;
-						for (ch=0;ch<4;ch++)
-						{
-							if ((l->slot_use[ch]) && (l->client[ch]))
-								SendB0 ("Room password changed.", l->client[ch]);
-						}
-					}
-				}
-			}
-
-			if ( !strcmp ( myCommand, "arrow" ) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need arrow digit.", client);
-				else
-				{
-					l->arrow_color[client->clientID] = atoi ( myArgs[0] );
-					ShowArrows (client, 1);
-				}
-			}
-
-			if ( !strcmp ( myCommand, "lang" ) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need language digit.", client);
-				else
-				{
-					npcID = atoi ( myArgs[0] );
-
-					if ( npcID > numLanguages ) npcID = 1;
-
-					if ( npcID == 0 )
-						npcID = 1;
-
-					npcID--;
-
-					client->character.lang = (unsigned char) npcID;
-
-					SendB0 ("Current language:\n", client);
-					SendB0 (languageNames[npcID], client);
-
-				}
-			}
-
-
-			if ( !strcmp ( myCommand, "npc" ) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need NPC digit. (max = 11, 0 to unskin)", client);
-				else
-				{
-					npcID = atoi ( myArgs[0] );
-
-					if ( npcID > 7 ) 
-					{
-						if ( ( npcID > 11 ) || ( !ship_support_extnpc ) )
-							npcID = 7;
-					}
-
-					if ( npcID == 0 )
-					{
-						client->character.skinFlag = 0x00;
-						client->character.skinID = 0x00;
-					}
-					else
-					{
-						client->character.skinFlag = 0x02;
-						client->character.skinID = npcID - 1;
-					}
-					SendB0 ("Skin updated, change blocks for it to take effect.", client );
-				}
-			}
-
-			// Process GM commands
-
-			if ( ( !strcmp ( myCommand, "event" ) ) && ( (client->isgm) || (playerHasRights(client->guildcard, 0))) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need event digit.", client);
-				else
-				{
-
-					shipEvent = atoi ( myArgs[0] );
-
-					write_gm ("GM %u has changed ship event to %u", client->guildcard, shipEvent );
-
-					PacketDA[0x04] = shipEvent;
-
-					for (ch=0;ch<serverNumConnections;ch++)
-					{
-						connectNum = serverConnectionList[ch];
-						if (connections[connectNum]->guildcard)
-						{
-							cipher_ptr = &connections[connectNum]->server_cipher;
-							encryptcopy (connections[connectNum], &PacketDA[0], 8);
-						}
-					}
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "redbox") ) && ( client->isgm ) )
-			{
-				if (l->redbox)
-				{
-					l->redbox = 0;
-					SendB0 ("Red box mode turned off.", client);
-					write_gm ("GM %u has deactivated redbox mode", client->guildcard ); 
-				}
-				else
-				{
-					l->redbox = 1;
-					SendB0 ("Red box mode turned on!", client);
-					write_gm ("GM %u has activated redbox mode", client->guildcard ); 
-				}
-			}
-
-			if (( !strcmp ( myCommand, "item" ) )  && (client->isgm))
-			{
-				// Item creation...
-				if ( client->lobbyNum < 0x10 )
-					SendB0 ("Cannot make items in the lobby!!!", client);
-				else
-					if ( myCmdArgs < 4 )
-						SendB0 ("You must specify at least four arguments for the desired item.", client);
-					else
-						if ( strlen ( myArgs[0] ) < 8 ) 
-							SendB0 ("Main arguments is an incorrect length.", client);
-						else
-						{
-							if ( ( strlen ( myArgs[1] ) < 8 ) ||
-								( strlen ( myArgs[2] ) < 8 ) || 
-								( strlen ( myArgs[3] ) < 8 ) )
-								SendB0 ("Some arguments were incorrect and replaced.", client);
-
-							write_gm ("GM %u created an item", client->guildcard);
-
-							itemNum = free_game_item (l);
-
-							_strupr ( myArgs[0] );
-							l->gameItem[itemNum].item.data[0]  = hex2byte (&myArgs[0][0]);
-							l->gameItem[itemNum].item.data[1]  = hex2byte (&myArgs[0][2]);
-							l->gameItem[itemNum].item.data[2]  = hex2byte (&myArgs[0][4]);
-							l->gameItem[itemNum].item.data[3]  = hex2byte (&myArgs[0][6]);
-
-
-							if ( strlen ( myArgs[1] ) >= 8 ) 
-							{
-								_strupr ( myArgs[1] );
-								l->gameItem[itemNum].item.data[4]  = hex2byte (&myArgs[1][0]);
-								l->gameItem[itemNum].item.data[5]  = hex2byte (&myArgs[1][2]);
-								l->gameItem[itemNum].item.data[6]  = hex2byte (&myArgs[1][4]);
-								l->gameItem[itemNum].item.data[7]  = hex2byte (&myArgs[1][6]);
-							}
-							else
-							{
-								l->gameItem[itemNum].item.data[4]  = 0;
-								l->gameItem[itemNum].item.data[5]  = 0;
-								l->gameItem[itemNum].item.data[6]  = 0;
-								l->gameItem[itemNum].item.data[7]  = 0;
-							}
-
-							if ( strlen ( myArgs[2] ) >= 8 ) 
-							{
-								_strupr ( myArgs[2] );
-								l->gameItem[itemNum].item.data[8]  = hex2byte (&myArgs[2][0]);
-								l->gameItem[itemNum].item.data[9]  = hex2byte (&myArgs[2][2]);
-								l->gameItem[itemNum].item.data[10] = hex2byte (&myArgs[2][4]);
-								l->gameItem[itemNum].item.data[11] = hex2byte (&myArgs[2][6]);
-							}
-							else
-							{
-								l->gameItem[itemNum].item.data[8]  = 0;
-								l->gameItem[itemNum].item.data[9]  = 0;
-								l->gameItem[itemNum].item.data[10] = 0;
-								l->gameItem[itemNum].item.data[11] = 0;
-							}
-
-							if ( strlen ( myArgs[3] ) >= 8 ) 
-							{
-								_strupr ( myArgs[3] );
-								l->gameItem[itemNum].item.data2[0]  = hex2byte (&myArgs[3][0]);
-								l->gameItem[itemNum].item.data2[1]  = hex2byte (&myArgs[3][2]);
-								l->gameItem[itemNum].item.data2[2]  = hex2byte (&myArgs[3][4]);
-								l->gameItem[itemNum].item.data2[3]  = hex2byte (&myArgs[3][6]);
-							}
-							else
-							{
-								l->gameItem[itemNum].item.data2[0]  = 0;
-								l->gameItem[itemNum].item.data2[1]  = 0;
-								l->gameItem[itemNum].item.data2[2]  = 0;
-								l->gameItem[itemNum].item.data2[3]  = 0;
-							}
-
-							// check stackable shit
-
-							stackable = 0;
-
-							if (l->gameItem[itemNum].item.data[0] == 0x03)
-								stackable = stackable_table[l->gameItem[itemNum].item.data[1]];
-
-							if ( ( stackable ) && ( l->gameItem[itemNum].item.data[5] == 0x00 ) )
-								l->gameItem[itemNum].item.data[5] = 0x01; // force at least 1 of a stack to drop
-
-							write_gm ("Item data: %02X%02X%02X%02X,%02X%02X%02X%02X,%02X%02x%02x%02x,%02x%02x%02x%02x",
-								l->gameItem[itemNum].item.data[0], l->gameItem[itemNum].item.data[1], l->gameItem[itemNum].item.data[2], l->gameItem[itemNum].item.data[3],
-								l->gameItem[itemNum].item.data[4], l->gameItem[itemNum].item.data[5], l->gameItem[itemNum].item.data[6], l->gameItem[itemNum].item.data[7],
-								l->gameItem[itemNum].item.data[8], l->gameItem[itemNum].item.data[9], l->gameItem[itemNum].item.data[10], l->gameItem[itemNum].item.data[11],
-								l->gameItem[itemNum].item.data2[0], l->gameItem[itemNum].item.data2[1], l->gameItem[itemNum].item.data2[2], l->gameItem[itemNum].item.data2[3] );
-
-							l->gameItem[itemNum].item.itemid = l->itemID++;
-							if (l->gameItemCount < MAX_SAVED_ITEMS)
-								l->gameItemList[l->gameItemCount++] = itemNum;
-							memset (&PacketData[0], 0, 0x2C);
-							PacketData[0x00] = 0x2C;
-							PacketData[0x02] = 0x60;
-							PacketData[0x08] = 0x5D;
-							PacketData[0x09] = 0x09;
-							PacketData[0x0A] = 0xFF;
-							PacketData[0x0B] = 0xFB;
-							*(unsigned *) &PacketData[0x0C] = l->floor[client->clientID];
-							*(unsigned *) &PacketData[0x10] = l->clientx[client->clientID];
-							*(unsigned *) &PacketData[0x14] = l->clienty[client->clientID];
-							memcpy (&PacketData[0x18], &l->gameItem[itemNum].item.data[0], 12 );
-							*(unsigned *) &PacketData[0x24] = l->gameItem[itemNum].item.itemid;
-							*(unsigned *) &PacketData[0x28] = *(unsigned *) &l->gameItem[itemNum].item.data2[0];
-							SendToLobby ( client->lobby, 4, &PacketData[0], 0x2C, 0);
-							SendB0 ("Item created.", client);
-						}								
-			}
-
-			if (( !strcmp ( myCommand, "give" ) )  && (client->isgm))
-			{
-				// Insert item into inventory
-				if ( client->lobbyNum < 0x10 )
-					SendB0 ("Cannot give items in the lobby!!!", client);
-				else
-					if ( myCmdArgs < 4 )
-						SendB0 ("You must specify at least four arguments for the desired item.", client);
-					else
-						if ( strlen ( myArgs[0] ) < 8 )
-							SendB0 ("Main arguments is an incorrect length.", client);
-						else
-						{
-							if ( ( strlen ( myArgs[1] ) < 8 ) ||
-								 ( strlen ( myArgs[2] ) < 8 ) || 
-								 ( strlen ( myArgs[3] ) < 8 ) )
-								SendB0 ("Some arguments were incorrect and replaced.", client);
-
-							write_gm ("GM %u obtained an item", client->guildcard);
-
-							_strupr ( myArgs[0] );
-							ii.item.data[0]  = hex2byte (&myArgs[0][0]);
-							ii.item.data[1]  = hex2byte (&myArgs[0][2]);
-							ii.item.data[2]  = hex2byte (&myArgs[0][4]);
-							ii.item.data[3]  = hex2byte (&myArgs[0][6]);
-
-
-							if ( strlen ( myArgs[1] ) >= 8 ) 
-							{
-								_strupr ( myArgs[1] );
-								ii.item.data[4]  = hex2byte (&myArgs[1][0]);
-								ii.item.data[5]  = hex2byte (&myArgs[1][2]);
-								ii.item.data[6]  = hex2byte (&myArgs[1][4]);
-								ii.item.data[7]  = hex2byte (&myArgs[1][6]);
-							}
-							else
-							{
-								ii.item.data[4]  = 0;
-								ii.item.data[5]  = 0;
-								ii.item.data[6]  = 0;
-								ii.item.data[7]  = 0;
-							}
-
-							if ( strlen ( myArgs[2] ) >= 8 ) 
-							{
-								_strupr ( myArgs[2] );
-								ii.item.data[8]  = hex2byte (&myArgs[2][0]);
-								ii.item.data[9]  = hex2byte (&myArgs[2][2]);
-								ii.item.data[10] = hex2byte (&myArgs[2][4]);
-								ii.item.data[11] = hex2byte (&myArgs[2][6]);
-							}
-							else
-							{
-								ii.item.data[8]  = 0;
-								ii.item.data[9]  = 0;
-								ii.item.data[10] = 0;
-								ii.item.data[11] = 0;
-							}
-
-							if ( strlen ( myArgs[3] ) >= 8 ) 
-							{
-								_strupr ( myArgs[3] );
-								ii.item.data2[0]  = hex2byte (&myArgs[3][0]);
-								ii.item.data2[1]  = hex2byte (&myArgs[3][2]);
-								ii.item.data2[2]  = hex2byte (&myArgs[3][4]);
-								ii.item.data2[3]  = hex2byte (&myArgs[3][6]);
-							}
-							else
-							{
-								ii.item.data2[0]  = 0;
-								ii.item.data2[1]  = 0;
-								ii.item.data2[2]  = 0;
-								ii.item.data2[3]  = 0;
-							}
-
-							// check stackable shit
-
-							stackable = 0;
-
-							if (ii.item.data[0] == 0x03)
-								stackable = stackable_table[ii.item.data[1]];
-
-							if ( stackable )
-							{
-								if ( ii.item.data[5] == 0x00 )
-									ii.item.data[5] = 0x01; // force at least 1 of a stack to drop
-								count = ii.item.data[5];
-							}
-							else
-								count = 1;
-
-							write_gm ("Item data: %02X%02X%02X%02X,%02X%02X%02X%02X,%02X%02x%02x%02x,%02x%02x%02x%02x",
-								ii.item.data[0], ii.item.data[1], ii.item.data[2], ii.item.data[3],
-								ii.item.data[4], ii.item.data[5], ii.item.data[6], ii.item.data[7],
-								ii.item.data[8], ii.item.data[9], ii.item.data[10], ii.item.data[11],
-								ii.item.data2[0], ii.item.data2[1], ii.item.data2[2], ii.item.data2[3] );
-
-							ii.item.itemid = l->itemID++;
-							AddToInventory ( &ii, count, 0, client );
-							SendB0 ("Item obtained.", client);
-						}
-			}
-
-			if ( ( !strcmp ( myCommand, "warpme" ) )  && ((client->isgm) || (playerHasRights(client->guildcard, 3))) )
-			{
-				if ( client->lobbyNum < 0x10 )
-					SendB0 ("Can't warp in the lobby!!!", client);
-				else
-					if ( myCmdArgs == 0 )
-						SendB0 ("Need area to warp to...", client);
-					else
-					{
-						target = atoi ( myArgs[0] );
-						if ( target > 17 )
-							SendB0 ("Warping past area 17 would probably crash your client...", client);
-						else
-						{
-							warp_packet[0x0C] = (unsigned char) atoi ( myArgs[0] );
-							cipher_ptr = &client->server_cipher;
-							encryptcopy (client, &warp_packet[0], sizeof (warp_packet));
-						}
-					}
-			}
-
-			if ( ( !strcmp ( myCommand, "dc" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 4))) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need a guild card # to disconnect.", client);
-				else
-				{
-					gc_num = atoi ( myArgs[0] );
-					for (ch=0;ch<serverNumConnections;ch++)
-					{
-						connectNum = serverConnectionList[ch];
-						if (connections[connectNum]->guildcard == gc_num)
-						{
-							if ((connections[connectNum]->isgm) && (isLocalGM(client->guildcard)))
-								SendB0 ("You may not disconnect this user.", client);
-							else
-							{
-								write_gm ("GM %u has disconnected user %u (%s)", client->guildcard, gc_num, unicode_to_ascii ((unsigned short*) &connections[connectNum]->character.name[4]));
-								Send1A ("You've been disconnected by a GM.", connections[connectNum]);
-								connections[connectNum]->todc = 1;
-								break;
-							}
-						}
-					}
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "ban" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 11))) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need a guild card # to ban.", client);
-				else
-				{
-					gc_num = atoi ( myArgs[0] );
-					found_ban = 0;
-
-					for (ch=0;ch<num_bans;ch++)
-					{
-						if ((ship_bandata[ch].guildcard == gc_num) && (ship_bandata[ch].type == 1))
-						{
-							found_ban = 1;
-							ban ( gc_num, (unsigned*) &client->ipaddr, &client->hwinfo, 1, client ); // Should unban...
-							write_gm ("GM %u has removed ban from guild card %u.", client->guildcard, gc_num);
-							SendB0 ("Ban removed.", client );
-							break;
-						}
-					}
-
-					if (!found_ban)
-					{
-						for (ch=0;ch<serverNumConnections;ch++)
-						{
-							connectNum = serverConnectionList[ch];
-							if (connections[connectNum]->guildcard == gc_num)
-							{
-								if ((connections[connectNum]->isgm) || (isLocalGM(connections[connectNum]->guildcard)))
-									SendB0 ("You may not ban this user.", client);
-								else
-								{
-									if ( ban ( gc_num, (unsigned*) &connections[connectNum]->ipaddr, 
-										&connections[connectNum]->hwinfo, 1, client ) )
-									{
-										write_gm ("GM %u has banned user %u (%s)", client->guildcard, gc_num, unicode_to_ascii ((unsigned short*) &connections[connectNum]->character.name[4]));
-										Send1A ("You've been banned by a GM.", connections[connectNum]);
-										SendB0 ("User has been banned.", client );
-										connections[connectNum]->todc = 1;
-									}
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "ipban" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 12))) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need a guild card # to IP ban.", client);
-				else
-				{
-					gc_num = atoi ( myArgs[0] );
-					found_ban = 0;
-
-					for (ch=0;ch<num_bans;ch++)
-					{
-						if ((ship_bandata[ch].guildcard == gc_num) && (ship_bandata[ch].type == 2))
-						{
-							found_ban = 1;
-							ban ( gc_num, (unsigned*) &client->ipaddr, &client->hwinfo, 2, client ); // Should unban...
-							write_gm ("GM %u has removed IP ban from guild card %u.", client->guildcard, gc_num);
-							SendB0 ("IP ban removed.", client );
-							break;
-						}
-					}
-
-					if (!found_ban)
-					{
-						for (ch=0;ch<serverNumConnections;ch++)
-						{
-							connectNum = serverConnectionList[ch];
-							if (connections[connectNum]->guildcard == gc_num)
-							{
-								if ((connections[connectNum]->isgm) || (isLocalGM(connections[connectNum]->guildcard)))
-									SendB0 ("You may not ban this user.", client);
-								else
-								{
-									if ( ban ( gc_num, (unsigned*) &connections[connectNum]->ipaddr, 
-										&connections[connectNum]->hwinfo, 2, client ) )
-									{
-										write_gm ("GM %u has IP banned user %u (%s)", client->guildcard, gc_num, unicode_to_ascii ((unsigned short*) &connections[connectNum]->character.name[4]));
-										Send1A ("You've been banned by a GM.", connections[connectNum]);
-										SendB0 ("User has been IP banned.", client );
-										connections[connectNum]->todc = 1;
-									}
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "hwban" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 12))) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need a guild card # to HW ban.", client);
-				else
-				{
-					gc_num = atoi ( myArgs[0] );
-					found_ban = 0;
-
-					for (ch=0;ch<num_bans;ch++)
-					{
-						if ((ship_bandata[ch].guildcard == gc_num) && (ship_bandata[ch].type == 3))
-						{
-							found_ban = 1;
-							ban ( gc_num, (unsigned*) &client->ipaddr, &client->hwinfo, 3, client ); // Should unban...
-							write_gm ("GM %u has removed HW ban from guild card %u.", client->guildcard, gc_num);
-							SendB0 ("HW ban removed.", client );
-							break;
-						}
-					}
-
-					if (!found_ban)
-					{
-						for (ch=0;ch<serverNumConnections;ch++)
-						{
-							connectNum = serverConnectionList[ch];
-							if (connections[connectNum]->guildcard == gc_num)
-							{
-								if ((connections[connectNum]->isgm) || (isLocalGM(connections[connectNum]->guildcard)))
-									SendB0 ("You may not ban this user.", client);
-								else
-								{
-									if ( ban ( gc_num, (unsigned*) &connections[connectNum]->ipaddr, 
-										&connections[connectNum]->hwinfo, 3, client ) )
-									{
-										write_gm ("GM %u has HW banned user %u (%s)", client->guildcard, gc_num, unicode_to_ascii ((unsigned short*) &connections[connectNum]->character.name[4]));
-										Send1A  ("You've been banned by a GM.", connections[connectNum]);
-										SendB0  ("User has been HW banned.", client );
-										connections[connectNum]->todc = 1;
-									}
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-
-
-			if ( ( !strcmp ( myCommand, "dcall" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 5))) )
-			{
-				printf ("Blocking connections until all users are disconnected...\n");
-				write_gm ("GM %u has disconnected all users", client->guildcard);
-				blockConnections = 1;
-			}
-
-			if ( ( !strcmp ( myCommand, "announce" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 6))) )
-			{
-				if (client->announce != 0)
-				{
-					SendB0 ("Announce\ncancelled.", client);
-					client->announce = 0;
-				}
-				else
-				{
-					SendB0 ("Announce by\nsending a\nmail.", client);
-					client->announce = 1;
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "global" ) ) && (client->isgm) )
-			{
-				if (client->announce != 0)
-				{
-					SendB0 ("Announce\ncancelled.", client);
-					client->announce = 0;
-				}
-				else
-				{
-					SendB0 ("Global announce\nby sending\na mail.", client);
-					client->announce = 2;
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "levelup" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 7))) )
-			{
-				if ( client->lobbyNum < 0x10 )
-					SendB0 ("Cannot level up in the lobby!!!", client);
-				else
-					if ( l->floor[client->clientID] == 0 )
-						SendB0 ("Please leave Pioneer 2 before using this command...", client);
-					else
-						if ( myCmdArgs == 0 )
-							SendB0 ("Must specify a target level to level up to...", client);
-						else
-						{
-							target = atoi ( myArgs[0] );
-							if ( ( client->character.level + 1 ) >= target )
-								SendB0 ("Target level must be higher than your current level...", client);
-							else
-							{
-								// Do the level up!!!
-
-								if (target > 200)
-									target = 200;
-
-								target -= 2;
-
-								AddExp (tnlxp[target] - client->character.XP, client);
-							}
-						}
-			}
-
-			if ( (!strcmp ( myCommand, "updatelocalgms" )) && ((client->isgm) || (playerHasRights(client->guildcard, 8))) )
-			{
-				SendB0 ("Local GM file reloaded.", client);
-				readLocalGMFile();
-			}
-
-			if ( (!strcmp ( myCommand, "updatemasks" )) && ((client->isgm) || (playerHasRights(client->guildcard, 12))) )
-			{
-				SendB0 ("IP ban masks file reloaded.", client);
-				load_mask_file();
-			}
-
-			if ( !strcmp ( myCommand, "bank" ) )
-			{
-				if (client->bankType)
-				{
-					client->bankType = 0;
-					SendB0 ("Bank: Character", client);
-				}
-				else
-				{
-					client->bankType = 1;
-					SendB0 ("Bank: Common", client);
-				}
-			}
-
-			if ( !strcmp ( myCommand, "ignore" ) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need a guild card # to ignore.", client);
-				else
-				{
-					gc_num = atoi ( myArgs[0] );
-					ignored = 0;
-
-					for (ch=0;ch<client->ignore_count;ch++)
-					{
-						if (client->ignore_list[ch] == gc_num)
-						{
-							ignored = 1;
-							client->ignore_list[ch] = 0;
-							SendB0 ("User no longer being ignored.", client);
-							break;
-						}
-					}
-
-					if (!ignored)
-					{
-						if (client->ignore_count < 100)
-						{
-							client->ignore_list[client->ignore_count++] = gc_num;
-							SendB0 ("User is now ignored.", client);
-						}
-						else
-							SendB0 ("Ignore list is full.", client);
-					}
-					else
-					{
-						ch2 = 0;
-						for (ch=0;ch<client->ignore_count;ch++)
-						{
-							if ((client->ignore_list[ch] != 0) && (ch != ch2))
-								client->ignore_list[ch2++] = client->ignore_list[ch];
-						}
-						client->ignore_count = ch2;
-					}
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "stfu" ) ) && ((client->isgm) || (playerHasRights(client->guildcard, 9))) )
-			{
-				if ( myCmdArgs == 0 )
-					SendB0 ("Need a guild card # to silence.", client);
-				else
-				{
-					gc_num = atoi ( myArgs[0] );
-					for (ch=0;ch<serverNumConnections;ch++)
-					{
-						connectNum = serverConnectionList[ch];
-						if (connections[connectNum]->guildcard == gc_num)
-						{
-							if ((connections[connectNum]->isgm) && (isLocalGM(client->guildcard)))
-								SendB0 ("You may not silence this user.", client);
-							else
-							{							
-								if (toggle_stfu(connections[connectNum]->guildcard, client))
-								{
-									write_gm ("GM %u has silenced user %u (%s)", client->guildcard, gc_num, unicode_to_ascii ((unsigned short*) &connections[connectNum]->character.name[4]));
-									SendB0  ("User has been silenced.", client);
-									SendB0  ("You've been silenced.", connections[connectNum]);
-								}
-								else
-								{
-									write_gm ("GM %u has removed silence from user %u (%s)", client->guildcard, gc_num, unicode_to_ascii ((unsigned short*) &connections[connectNum]->character.name[4]));
-									SendB0  ("User is now allowed to speak.", client);
-									SendB0  ("You may now speak freely.", connections[connectNum]);
-								}
-								break;
-							}
-						}
-					}
-				}
-			}
-
-			if ( ( !strcmp ( myCommand, "warpall" ) )  && ((client->isgm) || (playerHasRights(client->guildcard, 10))) )
-			{
-				if ( client->lobbyNum < 0x10 )
-					SendB0 ("Can't warp in the lobby!!!", client);
-				else
-					if ( myCmdArgs == 0 )
-						SendB0 ("Need area to warp to...", client);
-					else
-					{
-						target = atoi ( myArgs[0] );
-						if ( target > 17 )
-							SendB0 ("Warping past area 17 would probably crash your client...", client);
-						else
-						{
-							warp_packet[0x0C] = (unsigned char) atoi ( myArgs[0] );
-							SendToLobby ( client->lobby, 4, &warp_packet[0], sizeof (warp_packet), 0 );
-						}
-					}
-			}
-		}
-	}
-	else
-	{
-		for (ch=0;ch<(pktsize - 0x12);ch+=2)
-		{
-			if ((*n == 0x0000) || (chatsize == 0xC0))
-				break;
-			if ((*n == 0x0009) || (*n == 0x000A))
-				*n = 0x0020;
-			*(unsigned short*) &chatBuf[chatsize] = *n;
-			chatsize += 2;
-			n++;
-		}
-		chatBuf[chatsize++] = 0x00;
-		chatBuf[chatsize++] = 0x00;
-		while (chatsize % 8)
-			chatBuf[chatsize++] = 0x00;
-		*(unsigned short*) &chatBuf[0x00] = chatsize;
-		if ( !stfu ( client->guildcard ) )
-		{
-			if ( client->lobbyNum < 0x10 )
-				max_send = 12;
-			else
-				max_send = 4;
-			for (ch=0;ch<max_send;ch++)
-			{
-				if ((l->slot_use[ch]) && (l->client[ch]))
-				{
-					ignored = 0;
-					lClient = l->client[ch];
-					for (ch2=0;ch2<lClient->ignore_count;ch2++)
-					{
-						if (lClient->ignore_list[ch2] == client->guildcard)
-						{
-							ignored = 1;
-							break;
-						}
-					}
-					if (!ignored)
-					{
-						cipher_ptr = &lClient->server_cipher;
-						encryptcopy ( lClient, &chatBuf[0x00], chatsize );
-					}
-				}
-			}
-		}
-	}
-
-	if ( writeData )
-	{
-		if (!client->debugged)
-		{
-			client->debugged = 1;
-			_itoa (client->character.guildCard, &character_file[0], 10);
-			strcat (&character_file[0], unicode_to_ascii ((unsigned short*) &client->character.name[4]));
-			strcat (&character_file[0], ".bbc");
-			fp = fopen (&character_file[0], "wb");
-			if (fp)
-			{
-				fwrite (&client->character.packetSize, 1, sizeof (CHARDATA), fp);
-				fclose (fp);
-			}
-			write_log ("User %u (%s) has wrote character debug data.", client->guildcard, unicode_to_ascii ((unsigned short*) &client->character.name[4]) );
-			SendB0 ("Your debug data has been saved.", client);
-		}
-		else
-			SendB0 ("Your debug data has already been saved.", client);
-	}
-}
-
 void compressShipPacket ( PSO_SERVER* ship, unsigned char* src, unsigned long src_size )
 {
 	unsigned char* dest;
@@ -12374,102 +5177,6 @@ void start_encryption (PSO_CLIENT* connect)
 	connect->connected = connect->response = connect->savetime = (unsigned) servertime;
 }
 
-void TeamChat ( unsigned short* text, unsigned short chatsize, unsigned teamid, PSO_SERVER* ship )
-{
-	unsigned size;
-
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x04;
-	*(unsigned*) &ship->encryptbuf[0x02] = teamid;
-	while (chatsize % 8)
-		ship->encryptbuf[6 + (chatsize++)] = 0x00;
-	*text = chatsize;;
-	memcpy (&ship->encryptbuf[0x06], text, chatsize);
-	size = chatsize + 6;;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], size );
-}
-
-
-void CreateTeam (unsigned short* teamname, unsigned guildcard, PSO_SERVER* ship)
-{
-	unsigned short *g;
-	unsigned n;
-
-	n = 0;
-
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x00;
-
-	g = (unsigned short*) &ship->encryptbuf[0x02];
-
-	memset (g, 0, 24);
-	while ((*teamname != 0x0000) && (n<11))
-	{
-		if ((*teamname != 0x0009) && (*teamname != 0x000A))
-			*(g++) = *teamname;
-		else
-			*(g++) = 0x0020;
-		teamname++;
-		n++;
-	}
-	*(unsigned*) &ship->encryptbuf[0x1A] = guildcard;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x1E );
-}
-
-void UpdateTeamFlag (unsigned char* flag, unsigned teamid, PSO_SERVER* ship)
-{
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x01;
-	memcpy (&ship->encryptbuf[0x02], flag, 0x800);
-	*(unsigned*) &ship->encryptbuf[0x802] = teamid;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x806 );
-}
-
-void DissolveTeam (unsigned teamid, PSO_SERVER* ship)
-{
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x02;
-	*(unsigned*) &ship->encryptbuf[0x02] = teamid;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x06 );
-}
-
-void RemoveTeamMember ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship )
-{
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x03;
-	*(unsigned*) &ship->encryptbuf[0x02] = teamid;
-	*(unsigned*) &ship->encryptbuf[0x06] = guildcard;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0A );
-}
-
-void RequestTeamList ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship )
-{
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x05;
-	*(unsigned*) &ship->encryptbuf[0x02] = teamid;
-	*(unsigned*) &ship->encryptbuf[0x06] = guildcard;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0A );
-}
-
-void PromoteTeamMember ( unsigned teamid, unsigned guildcard, unsigned char newlevel, PSO_SERVER* ship )
-{
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x06;
-	*(unsigned*) &ship->encryptbuf[0x02] = teamid;
-	*(unsigned*) &ship->encryptbuf[0x06] = guildcard;
-	ship->encryptbuf[0x0A] = newlevel;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0B );
-}
-
-void AddTeamMember ( unsigned teamid, unsigned guildcard, PSO_SERVER* ship )
-{
-	ship->encryptbuf[0x00] = 0x09;
-	ship->encryptbuf[0x01] = 0x07;
-	*(unsigned*) &ship->encryptbuf[0x02] = teamid;
-	*(unsigned*) &ship->encryptbuf[0x06] = guildcard;
-	compressShipPacket ( ship, &ship->encryptbuf[0x00], 0x0A );
-}
-
 void CleanUpGameInventory (LOBBY* l)
 {
 	unsigned ch, item_count;
@@ -12538,8 +5245,8 @@ unsigned int free_game_item (LOBBY* l)
 
 	for (ch=0;ch<4;ch++)
 	{
-		if ((l->slot_use[ch]) && (l->client[ch]))
-			SendEE ("Lobby inventory problem!  It's advised you quit this game and recreate it.", l->client[ch]);
+		if ((l->slot_use[ch]) && (l->clients[ch]))
+			SendEE ("Lobby inventory problem!  It's advised you quit this game and recreate it.", &(l->clients[ch]));
 	}
 
 	return 0;
@@ -12547,12 +5254,12 @@ unsigned int free_game_item (LOBBY* l)
 
 void GenerateCommonItem (int item_type, int is_enemy, unsigned char sid, GAME_ITEM* i, LOBBY* l, PSO_CLIENT* client)
 {
-	unsigned ch, num_percents, item_set, meseta, do_area, r, eq_type;
+	unsigned int ch, num_percents, item_set, meseta, do_area, r, eq_type;
 	unsigned short ch2;
 	PTDATA* ptd;
-	unsigned area,fl;
-	unsigned did_area[6] = {0};
-	char percent;
+	unsigned int area,fl;
+	unsigned int did_area[6] = {0};
+	unsigned char percent;
 
 	if ((!l) || (!i))
 		return;
@@ -12738,7 +5445,8 @@ void GenerateCommonItem (int item_type, int is_enemy, unsigned char sid, GAME_IT
 					percent = percent_patterns_ep1[sid][l->difficulty][ptd->area_pattern[area]][mt_lrand() % 4096];
 				percent -= 2;
 				percent *= 5;
-				(char) i->item.data[6+(num_percents*2)+1] = percent;
+				// LOOK at this later -- percent used to be signed
+				i->item.data[6+(num_percents*2)+1] = percent;
 				num_percents++;
 			}
 		}
@@ -13058,7 +5766,7 @@ void feed_mag (unsigned int magid, unsigned int itemid, PSO_CLIENT* client)
 			else
 				m->level++; // Level up!
 			m->defense  = ( ( m->defense / 100 ) * 100 ) + mDefense;
-			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+			check_mag_evolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
 		}
 		else
 			m->defense  = ( ( m->defense / 100 ) * 100 ) + mDefense;
@@ -13078,7 +5786,7 @@ void feed_mag (unsigned int magid, unsigned int itemid, PSO_CLIENT* client)
 			else
 				m->level++; // Level up!
 			m->power  = ( ( m->power / 100 ) * 100 ) + mPower;
-			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+			check_mag_evolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
 		}
 		else
 			m->power  = ( ( m->power / 100 ) * 100 ) + mPower;
@@ -13098,7 +5806,7 @@ void feed_mag (unsigned int magid, unsigned int itemid, PSO_CLIENT* client)
 			else
 				m->level++; // Level up!
 			m->dex  = ( ( m->dex / 100 ) * 100 ) + mDex;
-			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+			check_mag_evolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
 		}
 		else
 			m->dex  = ( ( m->dex / 100 ) * 100 ) + mDex;
@@ -13118,7 +5826,7 @@ void feed_mag (unsigned int magid, unsigned int itemid, PSO_CLIENT* client)
 			else
 				m->level++; // Level up!
 			m->mind  = ( ( m->mind / 100 ) * 100 ) + mMind;
-			CheckMagEvolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
+			check_mag_evolution ( m, client->character.sectionID, client->character._class, EvolutionClass );
 		}
 		else
 			m->mind  = ( ( m->mind / 100 ) * 100 ) + mMind;
@@ -13929,255 +6637,1417 @@ void parse_map_data (LOBBY* l, MAP_MONSTER* mapData, int aMob, unsigned num_reco
 	}
 }
 
-void load_object_data (LOBBY* l, int unused, const char* filename)
-{
-	FILE* fp;
-	unsigned oldIndex, num_records, ch, ch2;
-	char new_file[256];
-
-	if (!l) 
-		return;
-
-	memcpy (&new_file[0], filename, strlen (filename) + 1);
-
-	if ( filename [ strlen ( filename ) - 5 ] == 101 )
-		new_file [ strlen ( filename ) - 5 ] = 111; // change e to o
-
-	//debug ("Loading object %s... current index: %u", new_file, l->objIndex);
-
-	fp = fopen ( &new_file[0], "rb");
-	if (!fp)
-		WriteLog ("Could not load object data from %s\n", new_file);
-	else
-	{
-		fseek  ( fp, 0, SEEK_END );
-		num_records = ftell ( fp ) / 68;
-		fseek  ( fp, 0, SEEK_SET );
-		fread  ( &dp[0], 1, 68 * num_records, fp );
-		fclose ( fp );
-		oldIndex = l->objIndex;
-		ch2 = 0;
-		for (ch=0;ch<num_records;ch++)
-		{
-			if ( l->objIndex < 0xB50 )
-			{
-				memcpy (&l->objData[l->objIndex], &dp[ch2+0x28], 12);
-				l->objData[l->objIndex].drop[3] = 0;
-				l->objData[l->objIndex].drop[2] = dp[ch2+0x35];
-				l->objData[l->objIndex].drop[1] = dp[ch2+0x36];
-				l->objData[l->objIndex++].drop[0] = dp[ch2+0x37];
-				ch2 += 68;
-			}
-			else
-				break;
-		}
-		//debug ("Added %u objects, total: %u", l->objIndex - oldIndex, l->objIndex );
-	}
-}
-
-void load_map_data (LOBBY* l, int aMob, const char* filename)
-{
-	FILE* fp;
-	unsigned oldIndex, num_records;
-
-	if (!l) 
-		return;
-
-	//debug ("Loading map %s... current index: %u", filename, l->mapIndex);
-
-	fp = fopen ( filename, "rb");
-	if (!fp)
-		WriteLog ("Could not load map data from %s\n", filename);
-	else
-	{
-		fseek  ( fp, 0, SEEK_END );
-		num_records = ftell ( fp ) / 72;
-		fseek  ( fp, 0, SEEK_SET );
-		fread  ( &dp[0], 1, sizeof ( MAP_MONSTER ) * num_records, fp );
-		fclose ( fp );
-		oldIndex = l->mapIndex;
-		ParseMapData ( l, (MAP_MONSTER*) &dp[0], aMob, num_records );
-		//debug ("Added %u mids, total: %u", l->mapIndex - oldIndex, l->mapIndex );
-	}
-};
-
-void load_ship_config_file()
-{
-	int config_index = 0;
-	char config_data[255];
-	unsigned ch = 0;
-
-	FILE* fp;
-
-	EXPERIENCE_RATE = 1; // Default to 100% EXP
-
-	if ( ( fp = fopen ("ship.ini", "r" ) ) == NULL )
-	{
-		printf ("The configuration file ship.ini appears to be missing.\n");
-		printf ("Press [ENTER] to quit...");
-		gets(&dp[0]);
-		exit (1);
-	}
-	else
-		while (fgets (&config_data[0], 255, fp) != NULL)
-		{
-			if (config_data[0] != 0x23)
-			{
-				if ((config_index == 0x00) || (config_index == 0x04) || (config_index == 0x05))
-				{
-					ch = strlen (&config_data[0]);
-					if (config_data[ch-1] == 0x0A)
-						config_data[ch--]  = 0x00;
-					config_data[ch] = 0;
-				}
-				switch (config_index)
-				{
-				case 0x00:
-					// Server IP address
-					{
-						if ((config_data[0] == 0x41) || (config_data[0] == 0x61))
-						{
-							autoIP = 1;
-						}
-						else
-						{
-							convertIPString (&config_data[0], ch+1, 1, &serverIP[0] );
-						}
-					}
-					break;
-				case 0x01:
-					// Server Listen Port
-					serverPort = atoi (&config_data[0]);
-					break;
-				case 0x02:
-					// Number of blocks
-					serverBlocks = atoi (&config_data[0]);
-					if (serverBlocks > 10) 
-					{
-						printf ("You cannot host more than 10 blocks... Adjusted.\n");
-						serverBlocks = 10;
-					}
-					if (serverBlocks == 0)
-					{
-						printf ("You have to host at least ONE block... Adjusted.\n");
-						serverBlocks = 1;
-					}
-					break;
-				case 0x03:
-					// Max Client Connections
-					serverMaxConnections = atoi (&config_data[0]);
-					if ( serverMaxConnections > ( serverBlocks * 180 ) )
-					{
-						printf ("\nYou're attempting to server more connections than the amount of blocks\nyou're hosting allows.\nAdjusted...\n");
-						serverMaxConnections = serverBlocks * 180;
-					}
-					if ( serverMaxConnections > SHIP_COMPILED_MAX_CONNECTIONS )
-					{
-						printf ("This copy of the ship serving software has not been compiled to accept\nmore than %u connections.\nAdjusted...\n", SHIP_COMPILED_MAX_CONNECTIONS);
-						serverMaxConnections = SHIP_COMPILED_MAX_CONNECTIONS;
-					}
-					break;
-				case 0x04:
-					// Login server host name or IP
-					{
-						unsigned p;
-						unsigned alpha;
-						alpha = 0;
-						for (p=0;p<ch;p++)
-							if (((config_data[p] >= 65 ) && (config_data[p] <= 90)) ||
-								((config_data[p] >= 97 ) && (config_data[p] <= 122)))
-							{
-								alpha = 1;
-								break;
-							}
-						if (alpha)
-						{
-							struct hostent *IP_host;
-
-							config_data[strlen(&config_data[0])-1] = 0x00;
-							printf ("Resolving %s ...\n", (char*) &config_data[0] );
-							IP_host = gethostbyname (&config_data[0]);
-							if (!IP_host)
-							{
-								printf ("Could not resolve host name.");
-								printf ("Press [ENTER] to quit...");
-								gets(&dp[0]);
-								exit (1);
-							}
-							*(unsigned *) &loginIP[0] = *(unsigned *) IP_host->h_addr;
-						}
-						else
-							convertIPString (&config_data[0], ch+1, 1, &loginIP[0] );
-					}
-					break;
-				case 0x05:
-					// Ship Name
-					memset (&Ship_Name[0], 0, 255 );
-					memcpy (&Ship_Name[0], &config_data[0], ch+1 );
-					Ship_Name[12] = 0x00;
-					break;
-				case 0x06:
-					// Event
-					shipEvent = (unsigned char) atoi (&config_data[0]);
-					PacketDA[0x04] = shipEvent;
-					break;
-				case 0x07:
-					weapon_drop_rate = atoi (&config_data[0]);
-					break;
-				case 0x08:
-					armor_drop_rate = atoi (&config_data[0]);
-					break;
-				case 0x09:
-					mag_drop_rate = atoi (&config_data[0]);
-					break;
-				case 0x0A:
-					TOOL_DROP_RATE = atoi (&config_data[0]);
-					break;
-				case 0x0B:
-					MESETA_DROP_RATE = atoi (&config_data[0]);
-					break;
-				case 0x0C:
-					EXPERIENCE_RATE = atoi (&config_data[0]);
-					if ( EXPERIENCE_RATE > 99 )
-					{
-						printf ("\nWARNING: You have your experience rate set to a very high number.\n");
-						printf ("As of ship_server.exe version 0.038, you now just use single digits\n");
-						printf ("to represent 100%% increments.  (ex. 1 for 100%, 2 for 200%)\n\n");
-						 ("If you've set the high value of %u%% experience on purpose,\n", EXPERIENCE_RATE * 100 );
-						printf ("press [ENTER] to continue, otherwise press CTRL+C to abort.\n");
-						printf (":");
-						gets   (&dp[0]);
-						printf ("\n\n");
-					}
-					break;
-				case 0x0D:
-					ship_support_extnpc = atoi (&config_data[0]);
-					break;
-				default:
-					break;
-				}
-				config_index++;
-			}
-		}
-		fclose (fp);
-
-		if (config_index < 0x0D)
-		{
-			printf ("ship.ini seems to be corrupted.\n");
-			printf ("Press [ENTER] to quit...");
-			gets(&dp[0]);
-			exit (1);
-		}
-		common_rates[0] = 100000 / weapon_drop_rate;
-		common_rates[1] = 100000 / armor_drop_rate;
-		common_rates[2] = 100000 / mag_drop_rate;
-		common_rates[3] = 100000 / tool_drop_rate;
-		common_rates[4] = 100000 / meseta_drop_rate;
-		load_mask_file();
-}
-
 void decryptcopy (unsigned char* dest, const unsigned char* src, unsigned int size)
 {
 	memcpy (dest,src,size);
 	pso_crypt_decrypt_bb(cipher_ptr,dest,size);
 }
+
+unsigned int GetShopPrice(INVENTORY_ITEM* ci)
+{
+	unsigned compare_item, ch;
+	int percent_add, price;
+	unsigned char variation;
+	float percent_calc;
+	float price_calc;
+
+	price = 10;
+
+/*	printf ("Raw item data for this item is:\r\n%02x%02x%02x%02x\r\n%02x%02x%02x%02x\r\n%02x%02x%02x%02x\r\n%02x%02x%02x%02x\r\n", 
+		ci->item.data[0], ci->item.data[1], ci->item.data[2], ci->item.data[3], 
+		ci->item.data[4], ci->item.data[5], ci->item.data[6], ci->item.data[7], 
+		ci->item.data[8], ci->item.data[9], ci->item.data[10], ci->item.data[11], 
+		ci->item.data[12], ci->item.data[13], ci->item.data[14], ci->item.data[15] ); */
+
+	switch (ci->item.data[0])
+	{
+	case 0x00: // Weapons
+		if (ci->item.data[4] & 0x80)
+			price  = 1; // Untekked = 1 meseta
+		else
+		{
+			if ((ci->item.data[1] < 0x0D) && (ci->item.data[2] < 0x05))
+			{
+				if ((ci->item.data[1] > 0x09) && (ci->item.data[2] > 0x03)) // Canes, Rods, Wands become rare faster
+					break;
+				price = weapon_atpmax_table[ci->item.data[1]][ci->item.data[2]] + ci->item.data[3];
+				price *= price;
+				price_calc = (float) price;
+				switch (ci->item.data[1])
+				{
+				case 0x01:
+					price_calc /= 5.0;
+					break;
+				case 0x02:
+					price_calc /= 4.0;
+					break;
+				case 0x03:
+				case 0x04:
+					price_calc *= 2.0;
+					price_calc /= 3.0;
+					break;
+				case 0x05:
+					price_calc *= 4.0;
+					price_calc /= 5.0;
+					break;
+				case 0x06:
+					price_calc *= 10.0;
+					price_calc /= 21.0;
+					break;
+				case 0x07:
+					price_calc /= 3.0;
+					break;
+				case 0x08:
+					price_calc *= 25.0;
+					break;
+				case 0x09:
+					price_calc *= 10.0;
+					price_calc /= 9.0;
+					break;
+				case 0x0A:
+					price_calc /= 2.0;
+					break;
+				case 0x0B:
+					price_calc *= 2.0;
+					price_calc /= 5.0;
+					break;
+				case 0x0C:
+					price_calc *= 4.0;
+					price_calc /= 3.0;
+					break;
+				}
+
+				percent_add = 0;
+				if (ci->item.data[6])
+					percent_add += (char) ci->item.data[7];
+				if (ci->item.data[8])
+					percent_add += (char) ci->item.data[9];
+				if (ci->item.data[10])
+					percent_add += (char) ci->item.data[11];
+
+				if ( percent_add != 0 )
+				{
+					percent_calc = price_calc;
+					percent_calc /= 300.0;
+					percent_calc *= percent_add;
+					price_calc += percent_calc;
+				}
+				price_calc /= 8.0;
+				price = (int) ( price_calc );
+				price += attrib[ci->item.data[4]];
+			}
+		}
+		break;
+	case 0x01:
+		switch (ci->item.data[1])
+		{
+		case 0x01: // Armor
+			if (ci->item.data[2] < 0x18)
+			{
+				// Calculate the amount to boost because of slots...
+				if (ci->item.data[5] > 4)
+					price = armor_prices[(ci->item.data[2] * 5) + 4];
+				else
+					price = armor_prices[(ci->item.data[2] * 5) + ci->item.data[5]];
+				price -= armor_prices[(ci->item.data[2] * 5)];
+				if (ci->item.data[6] > armor_dfpvar_table[ci->item.data[2]])
+					variation = 0;
+				else
+					variation = ci->item.data[6];
+				if (ci->item.data[8] <= armor_evpvar_table[ci->item.data[2]])
+					variation += ci->item.data[8];
+				price += equip_prices[1][1][ci->item.data[2]][variation];
+			}
+			break;
+		case 0x02: // Shield
+			if (ci->item.data[2] < 0x15)
+			{
+				if (ci->item.data[6] > barrier_dfpvar_table[ci->item.data[2]])
+					variation = 0;
+				else
+					variation = ci->item.data[6];
+				if (ci->item.data[8] <= barrier_evpvar_table[ci->item.data[2]])
+					variation += ci->item.data[8];
+				price = equip_prices[1][2][ci->item.data[2]][variation];
+			}
+			break;
+		case 0x03: // Units
+			if (ci->item.data[2] < 0x40)
+				price = unit_prices [ci->item.data[2]];
+			break;
+		}
+		break;
+	case 0x03:
+		// Tool
+		if (ci->item.data[1] == 0x02) // Technique
+		{
+			if (ci->item.data[4] < 0x13)
+				price = ((int) (ci->item.data[2] + 1) * tech_prices[ci->item.data[4]]) / 100L;
+		}
+		else
+		{
+			compare_item = 0;
+			memcpy (&compare_item, &ci->item.data[0], 3);
+			for (ch=0;ch<(sizeof(tool_prices)/4);ch+=2)
+				if (compare_item == tool_prices[ch])
+				{
+					price = tool_prices[ch+1];
+					break;
+				}		
+		}
+		break;
+	}
+	if ( price < 0 )
+		price = 0;
+	//printf ("GetShopPrice = %u\n", price);
+	return (unsigned) price;
+}
+
+void CheckMaxGrind (INVENTORY_ITEM* i)
+{
+	if (i->item.data[3] > grind_table[i->item.data[1]][i->item.data[2]])
+		i->item.data[3] = grind_table[i->item.data[1]][i->item.data[2]];
+}
+
+#include "team.h"
+#include "load.h"
+#include "commands.h"
+// end of functions
+
+int main()
+{
+	unsigned ch,ch2,ch3,ch4,ch5,connectNum;
+	int wep_rank;
+	PTDATA ptd;
+	unsigned wep_counters[24] = {0};
+	unsigned tool_counters[28] = {0};
+	unsigned tech_counters[19] = {0};
+	struct in_addr ship_in;
+	struct sockaddr_in listen_in;
+	unsigned listen_length;
+	int block_sockfd[10] = {-1};
+	struct in_addr block_in[10];
+	int ship_sockfd = -1;
+	int pkt_len, pkt_c, bytes_sent;
+	int wserror;
+	WSADATA winsock_data;
+	FILE* fp;
+	unsigned char* connectionChunk;
+	unsigned char* connectionPtr;
+	unsigned char* blockPtr;
+	unsigned char* blockChunk;
+	//unsigned short this_packet;
+	unsigned long logon_this_packet;
+	HINSTANCE hinst;
+    NOTIFYICONDATA nid = {0};
+	WNDCLASS wc = {0};
+	HWND hwndWindow;
+	MSG msg;
+		
+	ch = 0;
+
+	consoleHwnd = GetConsoleWindow();
+	hinst = GetModuleHandle(NULL);
+
+	dp[0] = 0;	// clears dp, so the following can be put into it
+
+	strcat (dp, "Ryuker Ship Server version ");
+	strcat (dp, SERVER_VERSION );
+	strcat (dp, " coded by gatchipatchi");
+	SetConsoleTitle (dp);	// after this, dp goes back to being a general buffer
+
+	printf ("\nTethealla Ship Server version %s  Copyright (C) 2008  Terry Chatman Jr.\n", SERVER_VERSION);
+	printf ("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
+	printf ("This program comes with ABSOLUTELY NO WARRANTY; for details\n");
+	printf ("see section 15 in gpl-3.0.txt\n");
+    printf ("This is free software, and you are welcome to redistribute it\n");
+    printf ("under certain conditions; see gpl-3.0.txt for details.\n");
+
+	/*for (ch=0;ch<5;ch++)
+	{
+		printf (".");
+		Sleep (1000);
+	}*/
+	printf ("\n\n");
+
+	WSAStartup(MAKEWORD(1,1), &winsock_data);
+	
+	printf ("Loading configuration from ship.ini ... ");
+#ifdef LOG_60
+	debugfile = fopen ("60packets.txt", "a");
+	if (!debugfile)
+	{
+		printf ("Could not create 60packets.txt");
+		printf ("Press [ENTER] to quit...");
+		gets (dp);	// see, whaddaye say
+		exit(1);
+	}
+#endif
+	mt_bestseed();
+	load_config_file();
+	printf ("OK!\n\n");
+
+	printf ("Loading language file...\n");
+
+	load_language_file(languageNames, languageExts, numLanguages);
+
+	printf ("OK!\n\n");
+
+	printf ("Loading ship_key.bin... ");
+
+	fp = fopen ("ship_key.bin", "rb" );
+	if (!fp)
+	{
+		printf ("Could not locate ship_key.bin!\n");
+		printf ("Hit [ENTER] to quit...");
+		gets (dp);
+		exit (1);
+	}
+
+	fread (&ship_index, 1, 4, fp );
+	fread (&ship_key[0], 1, 128, fp );
+	fclose (fp);
+
+	printf ("OK!\n\nLoading weapon parameter file...\n");
+	load_weapon_param(weapon_equip_table, grind_table, special_table, weapon_atpmax_table);
+	printf ("\n.. done!\n\n");
+
+	printf ("Loading armor & barrier parameter file...\n");
+	load_armor_param ();
+	printf ("\n.. done!\n\n");
+
+	printf ("Loading technique parameter file...\n");
+	load_tech_param();
+	printf ("\n.. done!\n\n");
+
+	for (ch=1;ch<200;ch++)
+		tnlxp[ch] = tnlxp[ch-1] + tnlxp[ch];
+
+	printf ("Loading battle parameter files...\n\n");
+	load_battle_param (&ep1battle_off[0], "param\\BattleParamEntry.dat", 374, 0x8fef1ffe);
+	load_battle_param (&ep1battle[0], "param\\BattleParamEntry_on.dat", 374, 0xb8a2d950);
+	load_battle_param (&ep2battle_off[0], "param\\BattleParamEntry_lab.dat", 374, 0x3dc217f5);
+	load_battle_param (&ep2battle[0], "param\\BattleParamEntry_lab_on.dat", 374, 0x4d4059cf);
+	load_battle_param (&ep4battle_off[0], "param\\BattleParamEntry_ep4.dat", 332, 0x50841167);
+	load_battle_param (&ep4battle[0], "param\\BattleParamEntry_ep4_on.dat", 332, 0x42bf9716);
+
+	for (ch=0;ch<374;ch++)
+		if (ep2battle_off[ch].HP)
+		{
+			ep2battle_off[ch].XP = ( ep2battle_off[ch].XP * 130 ) / 100; // 30% boost to EXP
+			ep2battle[ch].XP     = ( ep2battle[ch].XP * 130 ) / 100;
+		}
+
+	printf ("\n.. done!\n\nBuilding common tables... \n\n");
+	printf ("Weapon drop rate: %03f%%\n", (float) weapon_drop_rate / 1000);
+	printf ("Armor drop rate: %03f%%\n", (float) armor_drop_rate / 1000);
+	printf ("Mag drop rate: %03f%%\n", (float) mag_drop_rate / 1000);
+	printf ("Tool drop rate: %03f%%\n", (float) tool_drop_rate / 1000);
+	printf ("Meseta drop rate: %03f%%\n", (float) meseta_drop_rate / 1000);
+	printf ("Experience rate: %u%%\n\n", experience_rate * 100);
+
+	ch = 0;
+	while (ch < 100000)
+	{
+		for (ch2=0;ch2<5;ch2++)
+		{
+			common_counters[ch2]++;
+			if ((common_counters[ch2] >= common_rates[ch2]) && (ch<100000))
+			{
+				common_table[ch++] = (unsigned char) ch2;
+				common_counters[ch2] = 0;
+			}
+		}
+	}
+
+	printf (".. done!\n\n");
+
+	printf ("Loading param\\ItemPT.gsl...\n");
+	fp = fopen ("param\\ItemPT.gsl", "rb");
+	if (!fp)
+	{
+		printf ("Can't proceed without ItemPT.gsl\n");
+		printf ("Press [ENTER] to quit...");
+		gets (dp);
+		exit (1);
+	}
+	fseek (fp, 0x3000, SEEK_SET);
+
+	// Load up that EP1 data
+	printf ("Parse Episode I data... (This may take awhile...)\n");
+	for (ch2=0;ch2<4;ch2++) // For each difficulty
+	{
+		for (ch=0;ch<10;ch++) // For each ID
+		{
+			fread  (&ptd, 1, sizeof (PTDATA), fp);
+
+			ptd.enemy_dar[44] = 100; // Dragon
+			ptd.enemy_dar[45] = 100; // De Rol Le
+			ptd.enemy_dar[46] = 100; // Vol Opt
+			ptd.enemy_dar[47] = 100; // Falz
+
+			for (ch3=0;ch3<10;ch3++)
+			{
+				ptd.box_meseta[ch3][0] = swapendian ( ptd.box_meseta[ch3][0] );
+				ptd.box_meseta[ch3][1] = swapendian ( ptd.box_meseta[ch3][1] );
+			}
+
+			for (ch3=0;ch3<0x64;ch3++)
+			{
+				ptd.enemy_meseta[ch3][0] = swapendian ( ptd.enemy_meseta[ch3][0] );
+				ptd.enemy_meseta[ch3][1] = swapendian ( ptd.enemy_meseta[ch3][1] );
+			}
+
+			ptd.enemy_meseta[47][0] = ptd.enemy_meseta[46][0] + 400 + ( 100 * ch2 ); // Give Falz some meseta
+			ptd.enemy_meseta[47][1] = ptd.enemy_meseta[46][1] + 400 + ( 100 * ch2 );
+
+			for (ch3=0;ch3<23;ch3++)
+			{
+				for (ch4=0;ch4<6;ch4++)
+					ptd.percent_pattern[ch3][ch4] = swapendian ( ptd.percent_pattern[ch3][ch4] );
+			}
+
+			for (ch3=0;ch3<28;ch3++)
+			{
+				for (ch4=0;ch4<10;ch4++)
+				{
+					if (ch3 == 23)
+						ptd.tool_frequency[ch3][ch4] = 0;
+					else
+						ptd.tool_frequency[ch3][ch4] = swapendian ( ptd.tool_frequency[ch3][ch4] );
+				}
+			}
+
+			memcpy (&pt_tables_ep1[ch][ch2], &ptd, sizeof (PTDATA));
+
+			// Set up the weapon drop table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&wep_counters[0], 0, 4 * 24 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<12;ch4++)
+					{
+						wep_counters[ch4] += ptd.weapon_ratio[ch4];
+						if ((wep_counters[ch4] >= 0xFF) && (ch3<4096))
+						{
+							wep_rank  = ptd.weapon_minrank[ch4];
+							wep_rank += ptd.area_pattern[ch5];
+							if ( wep_rank >= 0 )
+							{
+								weapon_drops_ep1[ch][ch2][ch5][ch3++] = ( ch4 + 1 ) + ( (unsigned char) wep_rank << 8 );
+								wep_counters[ch4] = 0;
+							}
+						}
+					}
+				}
+			}
+
+			// Set up the slot table
+
+			memset (&wep_counters[0], 0, 4 * 24 );
+			ch3 = 0;
+
+			while (ch3 < 4096)
+			{
+				for (ch4=0;ch4<5;ch4++)
+				{
+					wep_counters[ch4] += ptd.slot_ranking[ch4];
+					if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
+					{
+						slots_ep1[ch][ch2][ch3++] = ch4;
+						wep_counters[ch4] = 0;
+					}
+				}
+			}
+
+			// Set up the power patterns
+
+			for (ch5=0;ch5<4;ch5++)
+			{
+				memset (&wep_counters[0], 0, 4 * 24 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<9;ch4++)
+					{
+						wep_counters[ch4] += ptd.power_pattern[ch4][ch5];
+						if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
+						{
+							power_patterns_ep1[ch][ch2][ch5][ch3++] = ch4;
+							wep_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+			// Set up the percent patterns
+
+			for (ch5=0;ch5<6;ch5++)
+			{
+				memset (&wep_counters[0], 0, 4 * 24 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<23;ch4++)
+					{
+						wep_counters[ch4] += ptd.percent_pattern[ch4][ch5];
+						if ((wep_counters[ch4] >= 0x2710) && (ch3<4096))
+						{
+							percent_patterns_ep1[ch][ch2][ch5][ch3++] = (char) ch4;
+							wep_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+			// Set up the tool table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&tool_counters[0], 0, 4 * 28 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<28;ch4++)
+					{
+						tool_counters[ch4] += ptd.tool_frequency[ch4][ch5];
+						if ((tool_counters[ch4] >= 0x2710) && (ch3<4096))
+						{
+							tool_drops_ep1[ch][ch2][ch5][ch3++] = ch4;
+							tool_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+
+			// Set up the attachment table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&tech_counters[0], 0, 4 * 19 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<6;ch4++)
+					{
+						tech_counters[ch4] += ptd.percent_attachment[ch4][ch5];
+						if ((tech_counters[ch4] >= 0x64) && (ch3<4096))
+						{
+							attachment_ep1[ch][ch2][ch5][ch3++] = ch4;
+							tech_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+
+			// Set up the technique table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&tech_counters[0], 0, 4 * 19 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<19;ch4++)
+					{
+						if (ptd.tech_levels[ch4][ch5*2] >= 0)
+						{
+							tech_counters[ch4] += ptd.tech_frequency[ch4][ch5];
+							if ((tech_counters[ch4] >= 0xFF) && (ch3<4096))
+							{
+								tech_drops_ep1[ch][ch2][ch5][ch3++] = ch4;
+								tech_counters[ch4] = 0;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Load up that EP2 data
+	printf ("Parse Episode II data... (This may take awhile...)\n");
+	for (ch2=0;ch2<4;ch2++) // For each difficulty
+	{
+		for (ch=0;ch<10;ch++) // For each ID
+		{
+			fread (&ptd, 1, sizeof (PTDATA), fp);
+
+			ptd.enemy_dar[73] = 100; // Barba Ray
+			ptd.enemy_dar[76] = 100; // Gol Dragon
+			ptd.enemy_dar[77] = 100; // Gar Gryphon
+			ptd.enemy_dar[78] = 100; // Olga Flow
+
+			for (ch3=0;ch3<10;ch3++)
+			{
+				ptd.box_meseta[ch3][0] = swapendian ( ptd.box_meseta[ch3][0] );
+				ptd.box_meseta[ch3][1] = swapendian ( ptd.box_meseta[ch3][1] );
+			}
+
+			for (ch3=0;ch3<0x64;ch3++)
+			{
+				ptd.enemy_meseta[ch3][0] = swapendian ( ptd.enemy_meseta[ch3][0] );
+				ptd.enemy_meseta[ch3][1] = swapendian ( ptd.enemy_meseta[ch3][1] );
+			}
+
+			ptd.enemy_meseta[78][0] = ptd.enemy_meseta[77][0] + 400 + ( 100 * ch2 ); // Give Flow some meseta
+			ptd.enemy_meseta[78][1] = ptd.enemy_meseta[77][1] + 400 + ( 100 * ch2 );
+
+			for (ch3=0;ch3<23;ch3++)
+			{
+				for (ch4=0;ch4<6;ch4++)
+					ptd.percent_pattern[ch3][ch4] = swapendian ( ptd.percent_pattern[ch3][ch4] );
+			}
+
+			for (ch3=0;ch3<28;ch3++)
+			{
+				for (ch4=0;ch4<10;ch4++)
+				{
+					if (ch3 == 23)
+						ptd.tool_frequency[ch3][ch4] = 0;
+					else
+						ptd.tool_frequency[ch3][ch4] = swapendian ( ptd.tool_frequency[ch3][ch4] );
+				}
+			}
+
+			memcpy ( &pt_tables_ep2[ch][ch2], &ptd, sizeof (PTDATA) );
+
+			// Set up the weapon drop table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&wep_counters[0], 0, 4 * 24 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<12;ch4++)
+					{
+						wep_counters[ch4] += ptd.weapon_ratio[ch4];
+						if ((wep_counters[ch4] >= 0xFF) && (ch3<4096))
+						{
+							wep_rank  = ptd.weapon_minrank[ch4];
+							wep_rank += ptd.area_pattern[ch5];
+							if ( wep_rank >= 0 )
+							{
+								weapon_drops_ep2[ch][ch2][ch5][ch3++] = ( ch4 + 1 ) + ( (unsigned char) wep_rank << 8 );
+								wep_counters[ch4] = 0;
+							}
+						}
+					}
+				}
+			}
+
+
+			// Set up the slot table
+
+			memset (&wep_counters[0], 0, 4 * 24 );
+			ch3 = 0;
+
+			while (ch3 < 4096)
+			{
+				for (ch4=0;ch4<5;ch4++)
+				{
+					wep_counters[ch4] += ptd.slot_ranking[ch4];
+					if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
+					{
+						slots_ep2[ch][ch2][ch3++] = ch4;
+						wep_counters[ch4] = 0;
+					}
+				}
+			}
+
+			// Set up the power patterns
+
+			for (ch5=0;ch5<4;ch5++)
+			{
+				memset (&wep_counters[0], 0, 4 * 24 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<9;ch4++)
+					{
+						wep_counters[ch4] += ptd.power_pattern[ch4][ch5];
+						if ((wep_counters[ch4] >= 0x64) && (ch3<4096))
+						{
+							power_patterns_ep2[ch][ch2][ch5][ch3++] = ch4;
+							wep_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+			// Set up the percent patterns
+
+			for (ch5=0;ch5<6;ch5++)
+			{
+				memset (&wep_counters[0], 0, 4 * 24 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<23;ch4++)
+					{
+						wep_counters[ch4] += ptd.percent_pattern[ch4][ch5];
+						if ((wep_counters[ch4] >= 0x2710) && (ch3<4096))
+						{
+							percent_patterns_ep2[ch][ch2][ch5][ch3++] = (char) ch4;
+							wep_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+			// Set up the tool table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&tool_counters[0], 0, 4 * 28 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<28;ch4++)
+					{
+						tool_counters[ch4] += ptd.tool_frequency[ch4][ch5];
+						if ((tool_counters[ch4] >= 0x2710) && (ch3<4096))
+						{
+							tool_drops_ep2[ch][ch2][ch5][ch3++] = ch4;
+							tool_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+
+			// Set up the attachment table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&tech_counters[0], 0, 4 * 19 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<6;ch4++)
+					{
+						tech_counters[ch4] += ptd.percent_attachment[ch4][ch5];
+						if ((tech_counters[ch4] >= 0x64) && (ch3<4096))
+						{
+							attachment_ep2[ch][ch2][ch5][ch3++] = ch4;
+							tech_counters[ch4] = 0;
+						}
+					}
+				}
+			}
+
+
+			// Set up the technique table
+
+			for (ch5=0;ch5<10;ch5++)
+			{
+				memset (&tech_counters[0], 0, 4 * 19 );
+				ch3 = 0;
+				while (ch3 < 4096)
+				{
+					for (ch4=0;ch4<19;ch4++)
+					{
+						if (ptd.tech_levels[ch4][ch5*2] >= 0)
+						{
+							tech_counters[ch4] += ptd.tech_frequency[ch4][ch5];
+							if ((tech_counters[ch4] >= 0xFF) && (ch3<4096))
+							{
+								tech_drops_ep2[ch][ch2][ch5][ch3++] = ch4;
+								tech_counters[ch4] = 0;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+
+	fclose (fp);
+	printf ("\n.. done!\n\n");
+	printf ("Loading param\\PlyLevelTbl.bin ... ");
+	fp = fopen ( "param\\PlyLevelTbl.bin", "rb" );
+	if (!fp)
+	{
+		printf ("Can't proceed without PlyLevelTbl.bin!\n");
+		printf ("Press [ENTER] to quit...");
+		gets (dp);
+		exit (1);
+	}
+	fread ( &startingData, 1, 12*14, fp );
+	fseek ( fp, 0xE4, SEEK_SET );
+	fread ( &playerLevelData, 1, 28800, fp );
+	fclose ( fp );
+
+	printf ("OK!\n\n.. done!\n\nLoading quests...\n\n");
+	
+	memset (&quest_menus[0], 0, sizeof (quest_menus));
+
+	// 0 = Episode 1 Team
+	// 1 = Episode 2 Team
+	// 2 = Episode 4 Team
+	// 3 = Episode 1 Solo
+	// 4 = Episode 2 Solo
+	// 5 = Episode 4 Solo
+	// 6 = Episode 1 Government
+	// 7 = Episode 2 Government
+	// 8 = Episode 4 Government
+	// 9 = Battle
+	// 10 = Challenge
+
+	load_quests ("quest\\ep1team.ini", 0);
+	load_quests ("quest\\ep2team.ini", 1);
+	load_quests ("quest\\ep4team.ini", 2);
+	load_quests ("quest\\ep1solo.ini", 3);
+	load_quests ("quest\\ep2solo.ini", 4);
+	load_quests ("quest\\ep4solo.ini", 5);
+	load_quests ("quest\\ep1gov.ini", 6);
+	load_quests ("quest\\ep2gov.ini", 7);
+	load_quests ("quest\\ep4gov.ini", 8);
+	load_quests ("quest\\battle.ini", 9);
+
+	printf ("\n%u bytes of memory allocated for %u quests...\n\n", questsMemory, numQuests);
+
+	printf ("Loading shop\\shop.dat ...");
+
+	fp = fopen ( "shop\\shop.dat", "rb" );
+
+	if (!fp)
+	{
+		printf ("Can't proceed without shop.dat!\n");
+		printf ("Press [ENTER] to quit...");
+		gets (dp);
+		exit (1);
+	}
+
+	if ( fread ( &shops[0], 1, 7000 * sizeof (SHOP), fp )  != (7000 * sizeof (SHOP)) )
+	{
+		printf ("Failed to read shop data...\n");
+		printf ("Press [ENTER] to quit...");
+		gets (dp);
+		exit (1);
+	}
+
+	fclose ( fp );
+
+	shop_checksum = calc_checksum ( &shops[0], 7000 * sizeof (SHOP) );
+
+	printf ("done!\n\n");
+
+	LoadShopData2();
+
+	readLocalGMFile();
+
+	// Set up shop indexes based on character levels...
+
+	for (ch=0;ch<200;ch++)
+	{
+		switch (ch / 20L)
+		{
+		case 0:	// Levels 1-20
+			shopidx[ch] = 0;
+			break;
+		case 1: // Levels 21-40
+			shopidx[ch] = 1000;
+			break;
+		case 2: // Levels 41-80
+		case 3:
+			shopidx[ch] = 2000;
+			break;
+		case 4: // Levels 81-120
+		case 5:
+			shopidx[ch] = 3000;
+			break;
+		case 6: // Levels 121-160
+		case 7:
+			shopidx[ch] = 4000;
+			break;
+		case 8: // Levels 161-180
+			shopidx[ch] = 5000;
+			break;
+		default: // Levels 180+
+			shopidx[ch] = 6000;
+			break;
+		}
+	}
+
+	memcpy (&Packet03[0x54], &Message03[0], sizeof (Message03));
+	printf ("\nShip server parameters\n");
+	printf ("///////////////////////\n");
+	printf ("IP: %u.%u.%u.%u\n", serverIP[0], serverIP[1], serverIP[2], serverIP[3] );
+	printf ("Ship Port: %u\n", serverPort );
+	printf ("Number of Blocks: %u\n", serverBlocks );
+	printf ("Maximum Connections: %u\n", serverMaxConnections );
+	printf ("Logon server IP: %u.%u.%u.%u\n", loginIP[0], loginIP[1], loginIP[2], loginIP[3] );
+
+	printf ("\nConnecting to the logon server...\n");
+	initialize_logon();
+	reconnect_logon();
+
+	printf ("\nAllocating %u bytes of memory for blocks... ", sizeof (BLOCK) * serverBlocks );
+	blockChunk = malloc ( sizeof (BLOCK) * serverBlocks );
+	if (!blockChunk)
+	{
+		printf ("Out of memory!\n");
+		printf ("Press [ENTER] to quit...");
+		gets(&dp[0]);
+		exit (1);
+	}
+	blockPtr = blockChunk;
+	memset (blockChunk, 0, sizeof (BLOCK) * serverBlocks);
+	for (ch=0;ch<serverBlocks;ch++)
+	{
+		blocks[ch] = (BLOCK*) blockPtr;
+		blockPtr += sizeof (BLOCK);
+	}
+
+	printf ("OK!\n");
+
+	printf ("\nAllocating %u bytes of memory for connections... ", sizeof (PSO_CLIENT) * serverMaxConnections );
+	connectionChunk = malloc ( sizeof (PSO_CLIENT) * serverMaxConnections );
+	if (!connectionChunk )
+	{
+		printf ("Out of memory!\n");
+		printf ("Press [ENTER] to quit...");
+		gets(&dp[0]);
+		exit (1);
+	}
+	connectionPtr = connectionChunk;
+	for (ch=0;ch<serverMaxConnections;ch++)
+	{
+		connections[ch] = (PSO_CLIENT*) connectionPtr;
+		connections[ch]->guildcard = 0;
+		connections[ch]->character_backup = NULL;
+		connections[ch]->mode = 0;
+		initialize_connection (connections[ch]);
+		connectionPtr += sizeof (PSO_CLIENT);
+	}
+
+	printf ("OK!\n\n");
+
+	printf ("Loading ban data... ");
+	fp = fopen ("bandata.dat", "rb");
+	if (fp)
+	{
+		fseek ( fp, 0, SEEK_END );
+		ch = ftell ( fp );
+		num_bans = ch / sizeof (BANDATA);
+		if ( num_bans > 5000 )
+			num_bans = 5000;
+		fseek ( fp, 0, SEEK_SET );
+		fread ( &ship_bandata[0], 1, num_bans * sizeof (BANDATA), fp );
+		fclose ( fp );
+	}
+	printf ("done!\n\n%u bans loaded.\n%u IP mask bans loaded.\n\n",num_bans,num_masks);
+
+	/* Open the ship port... */
+
+	printf ("Opening ship port %u for connections.\n", serverPort);
+
+#ifdef USEADDR_ANY
+	ship_in.s_addr = INADDR_ANY;
+#else
+	memcpy (&ship_in.s_addr, &serverIP[0], 4 );
+#endif
+	ship_sockfd = tcp_sock_open( ship_in, serverPort );
+
+	tcp_listen (ship_sockfd);
+
+	for (ch=1;ch<=serverBlocks;ch++)
+	{
+		printf ("Opening block port %u (BLOCK%u) for connections.\n", serverPort+ch, ch);
+#ifdef USEADDR_ANY
+		block_in[ch-1].s_addr = INADDR_ANY;
+#else
+		memcpy (&block_in[ch-1].s_addr, &serverIP[0], 4 );
+#endif
+		block_sockfd[ch-1] = tcp_sock_open( block_in[ch-1], serverPort+ch );
+		if (block_sockfd[ch-1] < 0)
+		{
+			printf ("Failed to open port %u for connections.\n", serverPort+ch );
+			printf ("Press [ENTER] to quit...");
+			gets(&dp[0]);
+			exit (1);
+		}
+
+		tcp_listen (block_sockfd[ch-1]);
+
+	}
+
+	if (ship_sockfd < 0)
+	{
+		printf ("Failed to open ship port for connections.\n");
+		printf ("Press [ENTER] to quit...");
+		gets(&dp[0]);
+		exit (1);
+	}
+
+	printf ("\nListening...\n");
+	wc.hbrBackground =(HBRUSH)GetStockObject(WHITE_BRUSH);
+	wc.hIcon = LoadIcon( hinst, IDI_APPLICATION );
+	wc.hCursor = LoadCursor( hinst, IDC_ARROW );
+	wc.hInstance = hinst;
+	wc.lpfnWndProc = WndProc;
+	wc.lpszClassName = "sodaboy";
+	wc.style = CS_HREDRAW | CS_VREDRAW;
+
+	if (! RegisterClass( &wc ) )
+	{
+		printf ("RegisterClass failure.\n");
+		exit (1);
+	}
+
+	hwndWindow = CreateWindow ("sodaboy","hidden window", WS_MINIMIZE, 1, 1, 1, 1, 
+		NULL, 
+		NULL,
+		hinst,
+		NULL );
+
+	if (!hwndWindow)
+	{
+		printf ("Failed to create window.");
+		exit (1);
+	}
+
+	ShowWindow ( hwndWindow, SW_HIDE );
+	UpdateWindow ( hwndWindow );
+	ShowWindow ( consoleHwnd, SW_HIDE );
+	UpdateWindow ( consoleHwnd );
+
+    nid.cbSize				= sizeof(nid);
+	nid.hWnd				= hwndWindow;
+	nid.uID					= 100;
+	nid.uCallbackMessage	= MYWM_NOTIFYICON;
+	nid.uFlags				= NIF_MESSAGE|NIF_ICON|NIF_TIP;
+    nid.hIcon				= LoadIcon(hinst, MAKEINTRESOURCE(IDI_ICON1));
+	nid.szTip[0] = 0;
+	strcat (&nid.szTip[0], "Tethealla Ship ");
+	strcat (&nid.szTip[0], SERVER_VERSION);
+	strcat (&nid.szTip[0], " - Double click to show/hide");
+    Shell_NotifyIcon(NIM_ADD, &nid);
+
+	for (;;)
+	{
+		int nfds = 0;
+
+		/* Process the system tray icon */
+
+		if ( PeekMessage( &msg, hwndWindow, 0, 0, 1 ) )
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+
+
+		/* Ping pong?! */
+
+		servertime = time(NULL);
+
+		/* Clear socket activity flags. */
+
+		FD_ZERO (&ReadFDs);
+		FD_ZERO (&WriteFDs);
+		FD_ZERO (&ExceptFDs);
+
+		// Stop blocking connections after everyone has been disconnected...
+
+		if ((serverNumConnections == 0) && (blockConnections))
+		{
+			blockConnections = 0;
+			printf ("No longer blocking new connections...\n");
+		}
+
+		// Process player packets
+
+		for (ch=0;ch<serverNumConnections;ch++)
+		{
+			connectNum = serverConnectionList[ch];
+			workConnect = connections[connectNum];
+
+			if (workConnect->plySockfd >= 0) 
+			{
+				if (blockConnections)
+				{
+					if (blockTick != (unsigned) servertime)
+					{
+						blockTick = (unsigned) servertime;
+						printf ("Disconnected user %u, left to disconnect: %u\n", workConnect->guildcard, serverNumConnections - 1);
+						Send1A ("You were disconnected by a GM...", workConnect);
+						workConnect->todc = 1;
+					}
+				}
+
+				if (workConnect->lastTick != (unsigned) servertime)
+				{
+					Send1D (workConnect);
+					if (workConnect->lastTick > (unsigned) servertime)
+						ch2 = 1;
+					else
+						ch2 = 1 + ((unsigned) servertime - workConnect->lastTick);
+						workConnect->lastTick = (unsigned) servertime;
+						workConnect->packetsSec /= ch2;
+						workConnect->toBytesSec /= ch2;
+						workConnect->fromBytesSec /= ch2;
+				}
+
+				FD_SET (workConnect->plySockfd, &ReadFDs);
+				nfds = max (nfds, workConnect->plySockfd);
+				FD_SET (workConnect->plySockfd, &ExceptFDs);
+				nfds = max (nfds, workConnect->plySockfd);
+
+				if (workConnect->snddata - workConnect->sndwritten)
+				{
+					FD_SET (workConnect->plySockfd, &WriteFDs);
+					nfds = max (nfds, workConnect->plySockfd);
+				}
+			}
+		}
+
+
+		// Read from logon server (if connected)
+
+		if (logon->sockfd >= 0)
+		{
+			if ((unsigned) servertime - logon->last_ping > 60)
+			{
+				printf ("Logon server ping timeout.  Attempting reconnection in %u seconds...\n", LOGIN_RECONNECT_SECONDS);
+				initialize_logon ();
+			}
+			else
+			{
+				if (logon->packetdata)
+				{
+					logon_this_packet = *(unsigned *) &logon->packet[logon->packetread];
+					memcpy (&logon->decryptbuf[0], &logon->packet[logon->packetread], logon_this_packet);
+
+					LogonProcessPacket ( logon );
+
+					logon->packetread += logon_this_packet;
+
+					if (logon->packetread == logon->packetdata)
+						logon->packetread = logon->packetdata = 0;
+				}
+
+				FD_SET (logon->sockfd, &ReadFDs);
+				nfds = max (nfds, logon->sockfd);
+
+				if (logon->snddata - logon->sndwritten)
+				{
+					FD_SET (logon->sockfd, &WriteFDs);
+					nfds = max (nfds, logon->sockfd);
+				}
+			}
+		}
+		else
+		{
+			logon_tick++;
+			if (logon_tick >= LOGIN_RECONNECT_SECONDS * 100)
+			{
+				printf ("Reconnecting to login server...\n");
+				reconnect_logon();
+			}
+		}
+
+
+		// Listen for block connections
+
+		for (ch=0;ch<serverBlocks;ch++)
+		{
+			FD_SET (block_sockfd[ch], &ReadFDs);
+			nfds = max (nfds, block_sockfd[ch]);
+		}
+
+		// Listen for ship connections
+
+		FD_SET (ship_sockfd, &ReadFDs);
+		nfds = max (nfds, ship_sockfd);
+
+		/* Check sockets for activity. */
+
+		if ( select ( nfds + 1, &ReadFDs, &WriteFDs, &ExceptFDs, &select_timeout ) > 0 ) 
+		{
+			if (FD_ISSET (ship_sockfd, &ReadFDs))
+			{
+				// Someone's attempting to connect to the ship server.
+				ch = free_connection();
+				if (ch != 0xFFFF)
+				{
+					listen_length = sizeof (listen_in);
+					workConnect = connections[ch];
+					if ( ( workConnect->plySockfd = tcp_accept ( ship_sockfd, (struct sockaddr*) &listen_in, &listen_length ) ) > 0 )
+					{
+						if ( !blockConnections )
+						{
+							workConnect->connection_index = ch;
+							serverConnectionList[serverNumConnections++] = ch;
+							memcpy ( &workConnect->IP_Address[0], inet_ntoa (listen_in.sin_addr), 16 );
+							*(unsigned *) &workConnect->ipaddr = *(unsigned *) &listen_in.sin_addr;
+							printf ("Accepted SHIP connection from %s:%u\n", workConnect->IP_Address, listen_in.sin_port );
+							printf ("Player Count: %u\n", serverNumConnections);
+							ShipSend0E (logon);
+							start_encryption (workConnect);
+							/* Doin' ship process... */
+							workConnect->block = 0;
+						}
+						else
+							initialize_connection ( workConnect );
+					}
+				}
+			}
+
+			for (ch=0;ch<serverBlocks;ch++)
+			{
+				if (FD_ISSET (block_sockfd[ch], &ReadFDs))
+				{
+					// Someone's attempting to connect to the block server.
+					ch2 = free_connection();
+					if (ch2 != 0xFFFF)
+					{
+						listen_length = sizeof (listen_in);
+						workConnect = connections[ch2];
+						if  ( ( workConnect->plySockfd = tcp_accept ( block_sockfd[ch], (struct sockaddr*) &listen_in, &listen_length ) ) > 0 )
+						{
+							if ( !blockConnections )
+							{
+								workConnect->connection_index = ch2;
+								serverConnectionList[serverNumConnections++] = ch2;
+								memcpy ( &workConnect->IP_Address[0], inet_ntoa (listen_in.sin_addr), 16 );
+								printf ("Accepted BLOCK connection from %s:%u\n", inet_ntoa (listen_in.sin_addr), listen_in.sin_port );
+								*(unsigned *) &workConnect->ipaddr = *(unsigned *) &listen_in.sin_addr;
+								printf ("Player Count: %u\n", serverNumConnections);
+								ShipSend0E (logon);
+								start_encryption (workConnect);
+								/* Doin' block process... */
+								workConnect->block = ch+1;
+							}
+							else
+								initialize_connection ( workConnect );
+						}
+					}
+				}
+			}
+
+
+			// Process client connections
+
+			for (ch=0;ch<serverNumConnections;ch++)
+			{
+				connectNum = serverConnectionList[ch];
+				workConnect = connections[connectNum];
+
+				if (workConnect->plySockfd >= 0)
+				{
+					if (FD_ISSET(workConnect->plySockfd, &WriteFDs))
+					{
+						// Write shit.
+
+						bytes_sent = send (workConnect->plySockfd, &workConnect->sndbuf[workConnect->sndwritten],
+							workConnect->snddata - workConnect->sndwritten, 0);
+
+						if (bytes_sent == SOCKET_ERROR)
+						{
+							/*
+							wserror = WSAGetLastError();
+							printf ("Could not send data to client...\n");
+							printf ("Socket Error %u.\n", wserror );
+							*/
+							initialize_connection (workConnect);							
+						}
+						else
+						{
+							workConnect->toBytesSec += bytes_sent;
+							workConnect->sndwritten += bytes_sent;
+						}
+
+						if (workConnect->sndwritten == workConnect->snddata)
+							workConnect->sndwritten = workConnect->snddata = 0;
+					}
+
+					// Disconnect those violators of the law...
+
+					if (workConnect->todc)
+						initialize_connection (workConnect);
+
+					if (FD_ISSET(workConnect->plySockfd, &ReadFDs))
+					{
+						// Read shit.
+						if ( ( pkt_len = recv (workConnect->plySockfd, &tmprcv[0], TCP_BUFFER_SIZE - 1, 0) ) <= 0 )
+						{
+							/*
+							wserror = WSAGetLastError();
+							printf ("Could not read data from client...\n");
+							printf ("Socket Error %u.\n", wserror );
+							*/
+							initialize_connection (workConnect);
+						}
+						else
+						{
+							workConnect->fromBytesSec += (unsigned) pkt_len;
+							// Work with it.
+
+							for (pkt_c=0;pkt_c<pkt_len;pkt_c++)
+							{
+								workConnect->rcvbuf[workConnect->rcvread++] = tmprcv[pkt_c];
+
+								if (workConnect->rcvread == 8)
+								{
+									// Decrypt the packet header after receiving 8 bytes.
+
+									cipher_ptr = &workConnect->client_cipher;
+
+									decryptcopy ( &workConnect->decryptbuf[0], &workConnect->rcvbuf[0], 8 );
+
+									// Make sure we're expecting a multiple of 8 bytes.
+
+									workConnect->expect = *(unsigned short*) &workConnect->decryptbuf[0];
+
+									if ( workConnect->expect % 8 )
+										workConnect->expect += ( 8 - ( workConnect->expect % 8 ) );
+
+									if ( workConnect->expect > TCP_BUFFER_SIZE )
+									{
+										initialize_connection ( workConnect );
+										break;
+									}
+								}
+
+								if ( ( workConnect->rcvread == workConnect->expect ) && ( workConnect->expect != 0 ) )
+								{
+									// Decrypt the rest of the data if needed.
+
+									cipher_ptr = &workConnect->client_cipher;
+
+									if ( workConnect->rcvread > 8 )
+										decryptcopy ( &workConnect->decryptbuf[8], &workConnect->rcvbuf[8], workConnect->expect - 8 );
+
+									workConnect->packetsSec ++;
+
+									if (
+										//(workConnect->packetsSec   > 89)    ||
+										(workConnect->fromBytesSec > 30000) ||
+										(workConnect->toBytesSec   > 150000)
+										)
+									{
+										printf ("%u disconnected for possible DDOS. (p/s: %u, tb/s: %u, fb/s: %u)\n", workConnect->guildcard, workConnect->packetsSec, workConnect->toBytesSec, workConnect->fromBytesSec);
+										initialize_connection(workConnect);
+										break;
+									}
+									else
+									{
+										switch (workConnect->block)
+										{
+										case 0x00:
+											// Ship Server
+											ShipProcessPacket (workConnect);
+											break;
+										default:
+											// Block server
+											BlockProcessPacket (workConnect);
+											break;
+										}
+									}
+									workConnect->rcvread = 0;
+								}
+							}
+						}
+					}
+
+					if (FD_ISSET(workConnect->plySockfd, &ExceptFDs)) // Exception?
+						initialize_connection (workConnect);
+
+				}
+			}
+
+
+			// Process logon server connection
+
+			if ( logon->sockfd >= 0 )
+			{
+				if (FD_ISSET(logon->sockfd, &WriteFDs))
+				{
+					// Write shit.
+
+					bytes_sent = send (logon->sockfd, &logon->sndbuf[logon->sndwritten],
+						logon->snddata - logon->sndwritten, 0);
+
+					if (bytes_sent == SOCKET_ERROR)
+					{
+						wserror = WSAGetLastError();
+						printf ("Could not send data to logon server...\n");
+						printf ("Socket Error %u.\n", wserror );
+						initialize_logon();
+						printf ("Lost connection with the logon server...\n");
+						printf ("Reconnect in %u seconds...\n", LOGIN_RECONNECT_SECONDS);
+					}
+					else
+						logon->sndwritten += bytes_sent;
+
+					if (logon->sndwritten == logon->snddata)
+						logon->sndwritten = logon->snddata = 0;
+				}
+
+				if (FD_ISSET(logon->sockfd, &ReadFDs))
+				{
+					// Read shit.
+					if ( ( pkt_len = recv (logon->sockfd, &tmprcv[0], PACKET_BUFFER_SIZE - 1, 0) ) <= 0 )
+					{
+						wserror = WSAGetLastError();
+						printf ("Could not read data from logon server...\n");
+						printf ("Socket Error %u.\n", wserror );
+						initialize_logon();
+						printf ("Lost connection with the logon server...\n");
+						printf ("Reconnect in %u seconds...\n", LOGIN_RECONNECT_SECONDS);
+					}
+					else
+					{
+						// Work with it.
+						for (pkt_c=0;pkt_c<pkt_len;pkt_c++)
+						{
+							logon->rcvbuf[logon->rcvread++] = tmprcv[pkt_c];
+
+							if (logon->rcvread == 4)
+							{
+								/* Read out how much data we're expecting this packet. */
+								logon->expect = *(unsigned *) &logon->rcvbuf[0];
+
+								if ( logon->expect > TCP_BUFFER_SIZE  )
+								{
+									printf ("Received too much data from the logon server.\nSevering connection and will reconnect in %u seconds...\n",  LOGIN_RECONNECT_SECONDS);
+									initialize_logon();
+								}
+							}
+
+							if ( ( logon->rcvread == logon->expect ) && ( logon->expect != 0 ) )
+							{
+								decompressShipPacket ( logon, &logon->decryptbuf[0], &logon->rcvbuf[0] );
+
+								logon->expect = *(unsigned *) &logon->decryptbuf[0];
+
+								if (logon->packetdata + logon->expect < PACKET_BUFFER_SIZE)
+								{
+									memcpy ( &logon->packet[logon->packetdata], &logon->decryptbuf[0], logon->expect );
+									logon->packetdata += logon->expect;
+								}
+								else
+									initialize_logon();
+
+								if ( logon->sockfd < 0 )
+									break;
+
+								logon->rcvread = 0;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
