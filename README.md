@@ -19,4 +19,5 @@ This project's goal is to produce a version of Tethealla that easy to work on vi
 
 As of right now, this code will not compile.  If you're looking for a PSOBB server,
 check out [Tethealla server setup](https://www.pioneer2.net/community/threads/tethealla-server-setup-instructions.1/),
-which contain both instructions and binaries.
+which contain both instructions and binaries.  If you want more details on the development process, you can check out
+my casual dev blog over here -> [artistformerlyknownased.tumblr.com](https://artistformerlyknownased.tumblr.com)
