@@ -11,11 +11,12 @@ Development is mostly done between two guys via Visual Studio collaboration tool
 at all is an afterthought.
 
 This project's goal is to produce a version of Tethealla that easy to work on via GitHub.  This will be done by:
-* restructuring the code in an easy to navigate manner
+* recreating the original function of the code but with modularity and good design practices in mind
 * providing thorough documentation within the source so no guides are necessary for setup or editing
 * facilitate collaboration on the project's GitHub
 * make the project IDE independent
+* prioritize Windows so its hobbyist friendly
 
-As of right now, the code will not compile.  If you're looking for a PSOBB server,
+As of right now, this code will not compile.  If you're looking for a PSOBB server,
 check out [Tethealla server setup](https://www.pioneer2.net/community/threads/tethealla-server-setup-instructions.1/),
 which contain both instructions and binaries.
