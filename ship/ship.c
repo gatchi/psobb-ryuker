@@ -100,11 +100,11 @@ int main( void )
 		// Generate config json
 		
 		cJSON * cj = cJSON_CreateObject();
-		unsigned char mysqlhost[MAX_LENGTH];
-		unsigned char mysqldbn[MAX_LENGTH];
-		unsigned char mysqluname[MAX_LENGTH];
-		unsigned char mysqlpass[MAX_LENGTH] = {0};
-		unsigned int mysqlport[6];
+		unsigned char mysqlhost[0];  // Apparently gets reallocates mem
+		unsigned char mysqldbn[0];   // so i dont think size matters here
+		unsigned char mysqluname[0];
+		unsigned char mysqlpass[0] = {0};
+		unsigned int mysqlport[0];
 		
 		printf ("\nWelcome to the ship config creator.\n");
 		printf ("Please enter the following values:\n");
