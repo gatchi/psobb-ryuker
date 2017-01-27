@@ -24,11 +24,10 @@
 
 #define SERVER_VERSION		"(alpha)"
 #define CONFIG_FILE			"shipconfig.json"
-#define MAX_LENGTH			20
 
 int main( void )
 {
-	unsigned char dp[1000] = {0};  // Dummy pointer for key presses
+	unsigned char dp[1] = {0};  // Dummy pointer for key presses
 	unsigned char dc;  // Dummy char for key presses
 
 #ifdef _WIN32
@@ -77,7 +76,7 @@ int main( void )
 	   Its not actually used in the load_config function, nor in load_mask.
 	 */
 	
-	// Try to load main config json.  If it doesnt exist, make it.
+	// If config file exists
 	FILE * cf = fopen (CONFIG_FILE, "r+");
 	if (0)
 	{
@@ -86,8 +85,11 @@ int main( void )
 		gets (dp);
 		fclose (cf);
 	}
+	
+	// If config file doesnt exist
 	else
 	{
+		// Prompt to create config file
 		printf ("\nThe configuration file %s appears to be missing.\n", CONFIG_FILE);
 		printf ("Proceed or quit? [ENTER/q]: ");  // Capital letter means default
 		dc = 0;
@@ -103,7 +105,7 @@ int main( void )
 		unsigned char mysqlhost[0];  // Apparently gets reallocates mem
 		unsigned char mysqldbn[0];   // so i dont think size matters here
 		unsigned char mysqluname[0];
-		unsigned char mysqlpass[0] = {0};
+		unsigned char mysqlpass[1] = {0};
 		unsigned int mysqlport[0];
 		
 		printf ("\nWelcome to the ship config creator.\n");
@@ -140,7 +142,7 @@ int main( void )
 		
 		// MySQL Port
 		printf ("MySQL port? [3306]: ");
-		unsigned char tbuff[MAX_LENGTH];
+		unsigned char tbuff[0];
 		gets (tbuff);
 		int filled = sscanf (tbuff, "%u", mysqlport);
 		if (filled < 1)
