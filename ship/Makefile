@@ -1,16 +1,22 @@
 # PSOBB Ryuker Server
 # Ship Server Makefile, 32-bit version
 
-CFLAGS = -I../headers
+CFLAGS = -I../shared
 COMPILE = gcc $(CFLAGS) -c
 
-all: ship_server
+all: ship
 	
-ship_server: ship_server.o
-	gcc -o ship_server ship_server.o -lws2_32
+ship: ship.o cJSON.o
+	gcc -o ship ship.o -lws2_32 cJSON.o
 
-ship_server.o: ship_server.c
-	$(COMPILE) ship_server.c
+ship.o: ship.c
+	$(COMPILE) ship.c
+
+cJSON.o: cJSON.c
+	$(COMPILE) cJSON.c
 
 clean:
+	rm *.o
+
+cleanest:
 	rm *.o ship_server.exe
