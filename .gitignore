@@ -1,3 +1,5 @@
 *.o
 *.exe
 *.json
+ship/cJSON.c
+test.c

@@ -44,7 +44,6 @@ int main( void )
 	WSADATA winsock_data;
 	if ( !WSAStartup(MAKEWORD(2,2), &winsock_data) )
 	{
-		printf ("Recieved winsock data.\n");
 		printf ("Press [ENTER] to start setup...");
 		gets (dp);
 	}
@@ -83,13 +82,13 @@ int main( void )
 	if (0)
 	{
 		// shit happens here
-		printf ("Config file found, press [ENTER] to exit.");
+		printf ("\nConfig file found, press [ENTER] to exit.");
 		gets (dp);
 		fclose (cf);
 	}
 	else
 	{
-		printf ("The configuration file %s appears to be missing.\n", CONFIG_FILE);
+		printf ("\nThe configuration file %s appears to be missing.\n", CONFIG_FILE);
 		printf ("Proceed or quit? [ENTER/q]: ");  // Capital letter means default
 		dc = 0;
 		dc = getchar();
@@ -136,12 +135,15 @@ int main( void )
 		
 		// MySQL Password
 		printf ("MySQL password?: ");
+		gets (mysqlpass);
 		cJSON_AddStringToObject (cj, "mysqlpass", mysqlpass);
 		
 		// MySQL Port
 		printf ("MySQL port? [3306]: ");
-		scanf ("%u", mysqlport);
-		if (*mysqlport == 0)
+		unsigned char tbuff[MAX_LENGTH];
+		gets (tbuff);
+		int filled = sscanf (tbuff, "%u", mysqlport);
+		if (filled < 1)
 			cJSON_AddNumberToObject (cj, "mysqlport", 3306);
 		else
 			cJSON_AddNumberToObject (cj, "mysqlport", *mysqlport);

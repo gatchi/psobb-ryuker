@@ -15,6 +15,9 @@ ship.o: ship.c
 cJSON.o: cJSON.c
 	$(COMPILE) cJSON.c
 
+test: test.c
+	gcc -o test test.c
+
 clean:
 	rm *.o
 
