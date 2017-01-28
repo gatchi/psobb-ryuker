@@ -1,5 +1,5 @@
 # PSOBB Ryuker Server
-# Ship Server Makefile, 32-bit version
+# Ship Server Makefile
 
 CFLAGS = -I../shared
 COMPILE = gcc $(CFLAGS) -c

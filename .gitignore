@@ -3,3 +3,4 @@
 *.json
 ship/cJSON.c
 test.c
+ship

@@ -43,7 +43,7 @@ int main( void )
 	WSADATA winsock_data;
 	if ( !WSAStartup(MAKEWORD(2,2), &winsock_data) )
 	{
-		printf ("Press [ENTER] to start setup...");
+		printf ("Press [ENTER] to start setup...\n");
 		gets (dp);
 	}
 	else
@@ -53,6 +53,9 @@ int main( void )
 		gets (dp);
 		exit (1);
 	}
+#else
+	printf ("\n");
+	printf ("Welcome to Ryuker PSOBB server program.\n");
 #endif
 	
 	/*
@@ -82,7 +85,7 @@ int main( void )
 	if (0)
 	{
 		// shit happens here
-		printf ("\nConfig file found, press [ENTER] to exit.");
+		printf ("Config file found, press [ENTER] to exit.");
 		gets (dp);
 		fclose (cf);
 	}
@@ -92,7 +95,7 @@ int main( void )
 	{
 		// Prompt to create config file
 		printf ("\nThe configuration file %s appears to be missing.\n", CONFIG_FILE);
-		printf ("Proceed or quit? [ENTER/q]: ");  // Capital letter means default
+		printf ("Create file? [ENTER/q]: ");  // Capital letter means default
 		c = 0;
 		c = getchar();
 		if (c != '\n')
@@ -110,8 +113,8 @@ int main( void )
 		unsigned int mysqlport;
 		unsigned char tbuff[10] = {0};  // For string to int conversion
 		
-		printf ("\nWelcome to the ship config creator.\n");
-		printf ("Please enter the following values:\n");
+		//printf ("\nWelcome to the ship config creator.\n");
+		printf ("\nPlease enter the following values (you can change these later):\n");
 		
 		// MySQL Host
 		printf ("MySQL host? [localhost]: ");
@@ -159,7 +162,7 @@ int main( void )
 		{
 			int len = strlen(jbuff);
 			fwrite (jbuff, 1, len, nf);
-			printf ("Generated config file.\n");
+			printf ("\nCreated %s.\n", CONFIG_FILE);
 		}
 		else
 			printf ("Error: couldnt print json.\n");
