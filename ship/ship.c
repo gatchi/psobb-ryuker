@@ -27,8 +27,8 @@
 
 int main( void )
 {
-	unsigned char dp[1] = {0};  // Dummy pointer for key presses
-	unsigned char dc;  // Dummy char for key presses
+	unsigned char dp[1] = {0};  // Dummy array for pressing enter in menus
+	unsigned char c;  // Generic char for mostly key presses
 
 #ifdef _WIN32
 	// Starts off with giving the server installer this nice welcome message
@@ -53,6 +53,7 @@ int main( void )
 		gets (dp);
 		exit (1);
 	}
+#endif
 	
 	/*
 	   In the original file, this is the part where configuration files are loaded:
@@ -92,9 +93,9 @@ int main( void )
 		// Prompt to create config file
 		printf ("\nThe configuration file %s appears to be missing.\n", CONFIG_FILE);
 		printf ("Proceed or quit? [ENTER/q]: ");  // Capital letter means default
-		dc = 0;
-		dc = getchar();
-		if (dc != '\n')
+		c = 0;
+		c = getchar();
+		if (c != '\n')
 		{
 			exit (1);
 		}
@@ -102,11 +103,12 @@ int main( void )
 		// Generate config json
 		
 		cJSON * cj = cJSON_CreateObject();
-		unsigned char mysqlhost[0];  // Apparently gets reallocates mem
-		unsigned char mysqldbn[0];   // so i dont think size matters here
-		unsigned char mysqluname[0];
-		unsigned char mysqlpass[1] = {0};
-		unsigned int mysqlport[0];
+		unsigned char mysqlhost[20];  // Max lengths for gets() safety reasons
+		unsigned char mysqldbn[30];
+		unsigned char mysqluname[30];
+		unsigned char mysqlpass[30] = {0};
+		unsigned int mysqlport;
+		unsigned char tbuff[10] = {0};  // For string to int conversion
 		
 		printf ("\nWelcome to the ship config creator.\n");
 		printf ("Please enter the following values:\n");
@@ -142,13 +144,12 @@ int main( void )
 		
 		// MySQL Port
 		printf ("MySQL port? [3306]: ");
-		unsigned char tbuff[0];
 		gets (tbuff);
-		int filled = sscanf (tbuff, "%u", mysqlport);
+		int filled = sscanf (tbuff, "%u", &mysqlport);
 		if (filled < 1)
 			cJSON_AddNumberToObject (cj, "mysqlport", 3306);
 		else
-			cJSON_AddNumberToObject (cj, "mysqlport", *mysqlport);
+			cJSON_AddNumberToObject (cj, "mysqlport", mysqlport);
 		
 		
 		// Print to file
@@ -181,5 +182,4 @@ int main( void )
 	
 	   Then a MASSIVE for loop at the end, im guessing for actual ship stuff
 	 */
-#endif
 }
