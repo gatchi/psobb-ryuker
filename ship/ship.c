@@ -89,9 +89,8 @@ int main (void)
 	if (cf != NULL)
 	{
 		// shit happens here
-		printf ("Config file found, press [ENTER] to exit.");
+		printf ("Config file found, press [ENTER] to continue.");
 		gets (dp);
-		fclose (cf);
 	}
 	
 	// If config file doesnt exist
@@ -128,13 +127,13 @@ int main (void)
 		printf ("Num of ship blocks? (1-10): ");
 		get_json_num (shipj, "numblks", 5);
 		
-		// Server Listen Port
-		printf ("Server listen port? [12000]: ");
-		get_json_num (shipj, "lisport", 12000);
+		// Ship Port
+		printf ("Ship inital port? [5278]: ");
+		get_json_num (shipj, "shiport", 5278);
 		
 		// Max Connections
-		printf ("Max connections per block? (1-180)");
-		get_json_num (shipj, "maxcon", 100);
+		printf ("Max connections? (100-180000) (see INSTALL)");
+		get_json_num (shipj, "maxcon", 300);
 		
 		// Login Server IP
 		printf ("Login server IP?:");
@@ -162,6 +161,10 @@ int main (void)
 		gets (dp);
 	}
 	
+	// Now lets load ship.json
+	
+	fclose (cf);
+	
 	/*
 	   Then it appears to get data from a packet (logon packet?) for setting up network
 	   parameters for the ship and for connecting to the logon server.  It then tries to connect.
@@ -176,6 +179,9 @@ int main (void)
 	
 	   Then a MASSIVE for loop at the end, im guessing for actual ship stuff
 	 */
+	
+	// A loop would go here with server things, but for now, lets just exit
+	return 0;
 }
 
 void account_creation (void)
