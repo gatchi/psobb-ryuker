@@ -86,7 +86,7 @@ int main (void)
 	
 	// If config file exists
 	FILE * cf = fopen (CONFIG_FILE, "r+");
-	if (0)
+	if (cf != NULL)
 	{
 		// shit happens here
 		printf ("Config file found, press [ENTER] to exit.");
@@ -118,15 +118,33 @@ int main (void)
 		
 		// Ship Name
 		printf ("Ship name?: ");
-		add_json_string (shipj, "shipname", 30, NULL);
+		get_json_string (shipj, "shipname", 30, NULL);
 		
 		// Ship IP
 		printf ("Ship IP? [AUTO]: ");
-		add_json_string (shipj, "shipip", 15, "auto");
+		get_json_string (shipj, "shipip", 15, "auto");
 		
 		// Number of Blocks
 		printf ("Num of ship blocks? (1-10): ");
-		add_json_num (shipj, "numblks", 0);
+		get_json_num (shipj, "numblks", 5);
+		
+		// Server Listen Port
+		printf ("Server listen port? [12000]: ");
+		get_json_num (shipj, "lisport", 12000);
+		
+		// Max Connections
+		printf ("Max connections per block? (1-180)");
+		get_json_num (shipj, "maxcon", 100);
+		
+		// Login Server IP
+		printf ("Login server IP?:");
+		get_json_string (shipj, "lgnip", 15, NULL);
+		
+		// Event?
+		//printf ("Any events happening? [NONE]:");
+		
+		// Bunch of others stuff im not gonna add in yet
+		
 		
 		// Print to file
 		FILE * nf = fopen (CONFIG_FILE, "w");
@@ -215,19 +233,21 @@ void account_creation (void)
 		cJSON_AddNumberToObject (cj, "mysqlport", mysqlport);
 }
 
-void add_json_num (cJSON * j, unsigned char * name, signed int dnum)
+void get_json_num (cJSON * j, unsigned char * name, signed int dnum)
 {
 	signed int x;
 	unsigned char s[30];
 	fgets (s, 30, stdin);
 	int filled = sscanf (s, "%d", &x);
-	if (filled < 1)
+	if ((filled < 1) && (dnum > 0))
 		cJSON_AddNumberToObject (j, name, dnum);
+	else if ((filled < 1) && (dnum < 0))
+		cJSON_AddNumberToObject (j, name, 1);
 	else
 		cJSON_AddNumberToObject (j, name, x);
 }
 
-void add_json_string (cJSON * j, unsigned char * name, unsigned short size, unsigned char * dname)
+void get_json_string (cJSON * j, unsigned char * name, unsigned short size, unsigned char * dname)
 {
 	unsigned char s[size];
 	*s = 0;
