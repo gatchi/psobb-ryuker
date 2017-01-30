@@ -1,5 +1,11 @@
 /************************************************************************
 	Ryuker Ship Server
+	
+	Based off of sodayboy's Tethealla ship server.
+	(github.com/justnoxx/psobb-tethealla)
+	
+	Official Ryuker codebase host:
+	(github.com/gatchi/psobb-ryuker)
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License version 3 as
@@ -20,37 +26,35 @@
 #endif
 
 #include <stdio.h>
-#include "cJSON.h"
+#include <ctype.h>
+#include "ship.h"
 
 #define SERVER_VERSION		"(alpha)"
-#define CONFIG_FILE			"shipconfig.json"
+#define CONFIG_FILE			"ship.json"
 
-int main( void )
+int main (void)
 {
-	unsigned char dp[1] = {0};  // Dummy array for pressing enter in menus
-	unsigned char c;  // Generic char for mostly key presses
+	unsigned char dp[5] = {0};  // Dummy array for pressing enter in menus
+	unsigned char c;            // Generic char for mostly key presses
 
 #ifdef _WIN32
-	// Starts off with giving the server installer this nice welcome message
-	// dp is a temp char buffer, used throughout this whole file
-	strcat (dp, "Ryuker Ship Server ");
-	strcat (dp, SERVER_VERSION );
-	
-	// This looks to be a windows command (from windows.h maybe)
-	SetConsoleTitle (dp);
+	// Starts off with setting the server installer window title
+	unsigned char ctitle[30] = {0};
+	sprintf (ctitle, "Ryuker Ship Server %s", SERVER_VERSION);
+	SetConsoleTitle (ctitle);
 	
 	// Negotiate with winsock (windows networking) to get winsock data by providing version request
 	WSADATA winsock_data;
 	if ( !WSAStartup(MAKEWORD(2,2), &winsock_data) )
 	{
-		printf ("Press [ENTER] to start setup...\n");
-		gets (dp);
+		printf ("Press [ENTER] to start setup...");
+		fgets (dp, 2, stdin);
 	}
 	else
 	{
 		printf ("Could not negotiate with winsock.\n");
 		printf ("Press [ENTER] to quit...");
-		gets (dp);
+		fgets (dp, 2, stdin);
 		exit (1);
 	}
 #else
@@ -95,69 +99,38 @@ int main( void )
 	{
 		// Prompt to create config file
 		printf ("\nThe configuration file %s appears to be missing.\n", CONFIG_FILE);
-		printf ("Create file? [ENTER/q]: ");  // Capital letter means default
-		c = 0;
-		c = getchar();
-		if (c != '\n')
+		printf ("Create file? [Y/n]: ");  // Capital letter means default
+		do
 		{
-			exit (1);
-		}
+			fgets (dp, 5, stdin);
+			if (dp[0] == 'n')
+			{
+				exit (1);
+			}
+			if ((tolower(dp[0]) != 'y') && (dp[0] != '\n'))
+				printf ("Create file? [Y/n]: ");
+			
+		} while ((tolower(dp[0]) != 'y') && (dp[0] != '\n'));
 		
-		// Generate config json
+		// Generate ship config json //
 		
-		cJSON * cj = cJSON_CreateObject();
-		unsigned char mysqlhost[20];  // Max lengths for gets() safety reasons
-		unsigned char mysqldbn[30];
-		unsigned char mysqluname[30];
-		unsigned char mysqlpass[30] = {0};
-		unsigned int mysqlport;
-		unsigned char tbuff[10] = {0};  // For string to int conversion
+		cJSON * shipj = cJSON_CreateObject();
 		
-		//printf ("\nWelcome to the ship config creator.\n");
-		printf ("\nPlease enter the following values (you can change these later):\n");
+		// Ship Name
+		printf ("Ship name?: ");
+		add_json_string (shipj, "shipname", 30, NULL);
 		
-		// MySQL Host
-		printf ("MySQL host? [localhost]: ");
-		gets (mysqlhost);
-		if (mysqlhost[0] == '\0')
-			cJSON_AddStringToObject (cj, "mysqlhost", "localhost");
-		else
-			cJSON_AddStringToObject (cj, "mysqlhost", mysqlhost);
+		// Ship IP
+		printf ("Ship IP? [AUTO]: ");
+		add_json_string (shipj, "shipip", 15, "auto");
 		
-		// MySQL Database Name
-		printf ("MySQL database name? [pso_db]: ");
-		gets (mysqldbn);
-		if (mysqldbn[0] == '\0')
-			cJSON_AddStringToObject (cj, "mysqldbname", "pso_db");
-		else
-			cJSON_AddStringToObject (cj, "mysqldbname", mysqldbn);
-		
-		// MySQL Username
-		printf ("MySQL username? [pso]: ");
-		gets (mysqluname);
-		if (mysqluname[0] == '\0')
-			cJSON_AddStringToObject (cj, "mysqluname", "pso");
-		else
-			cJSON_AddStringToObject (cj, "mysqluname", mysqlhost);
-		
-		// MySQL Password
-		printf ("MySQL password?: ");
-		gets (mysqlpass);
-		cJSON_AddStringToObject (cj, "mysqlpass", mysqlpass);
-		
-		// MySQL Port
-		printf ("MySQL port? [3306]: ");
-		gets (tbuff);
-		int filled = sscanf (tbuff, "%u", &mysqlport);
-		if (filled < 1)
-			cJSON_AddNumberToObject (cj, "mysqlport", 3306);
-		else
-			cJSON_AddNumberToObject (cj, "mysqlport", mysqlport);
-		
+		// Number of Blocks
+		printf ("Num of ship blocks? (1-10): ");
+		add_json_num (shipj, "numblks", 0);
 		
 		// Print to file
 		FILE * nf = fopen (CONFIG_FILE, "w");
-		char * jbuff = cJSON_Print (cj);
+		char * jbuff = cJSON_Print (shipj);
 		if (jbuff != NULL)
 		{
 			int len = strlen(jbuff);
@@ -185,4 +158,82 @@ int main( void )
 	
 	   Then a MASSIVE for loop at the end, im guessing for actual ship stuff
 	 */
+}
+
+void account_creation (void)
+{
+	unsigned char dp[1] = {0};
+	
+	// Create MySQL config json
+	
+	cJSON * cj = cJSON_CreateObject();
+	unsigned char mysqlhost[20];  // Max lengths for gets() safety reasons
+	unsigned char mysqldbn[30];
+	unsigned char mysqluname[30];
+	unsigned char mysqlpass[30] = {0};
+	unsigned int mysqlport;
+	unsigned char tbuff[10] = {0};  // For string to int conversion
+	
+	printf ("\nPlease enter the following values (you can change these later):\n");
+	
+	// MySQL Host
+	printf ("MySQL host? [localhost]: ");
+	gets (mysqlhost);
+	if (mysqlhost[0] == '\0')
+		cJSON_AddStringToObject (cj, "mysqlhost", "localhost");
+	else
+		cJSON_AddStringToObject (cj, "mysqlhost", mysqlhost);
+	
+	// MySQL Database Name
+	printf ("MySQL database name? [pso_db]: ");
+	gets (mysqldbn);
+	if (mysqldbn[0] == '\0')
+		cJSON_AddStringToObject (cj, "mysqldbname", "pso_db");
+	else
+		cJSON_AddStringToObject (cj, "mysqldbname", mysqldbn);
+	
+	// MySQL Username
+	printf ("MySQL username? [pso]: ");
+	gets (mysqluname);
+	if (mysqluname[0] == '\0')
+		cJSON_AddStringToObject (cj, "mysqluname", "pso");
+	else
+		cJSON_AddStringToObject (cj, "mysqluname", mysqlhost);
+	
+	// MySQL Password
+	printf ("MySQL password?: ");
+	gets (mysqlpass);
+	cJSON_AddStringToObject (cj, "mysqlpass", mysqlpass);
+	
+	// MySQL Port
+	printf ("MySQL port? [3306]: ");
+	gets (tbuff);
+	int filled = sscanf (tbuff, "%u", &mysqlport);
+	if (filled < 1)
+		cJSON_AddNumberToObject (cj, "mysqlport", 3306);
+	else
+		cJSON_AddNumberToObject (cj, "mysqlport", mysqlport);
+}
+
+void add_json_num (cJSON * j, unsigned char * name, signed int dnum)
+{
+	signed int x;
+	unsigned char s[30];
+	fgets (s, 30, stdin);
+	int filled = sscanf (s, "%d", &x);
+	if (filled < 1)
+		cJSON_AddNumberToObject (j, name, dnum);
+	else
+		cJSON_AddNumberToObject (j, name, x);
+}
+
+void add_json_string (cJSON * j, unsigned char * name, unsigned short size, unsigned char * dname)
+{
+	unsigned char s[size];
+	*s = 0;
+	gets (s);
+	if ((dname != NULL) && (s[0] == '\0'))
+		cJSON_AddStringToObject (j, name, dname);
+	else
+		cJSON_AddStringToObject (j, name, s);
 }
