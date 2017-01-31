@@ -24,6 +24,9 @@ cJSON.o: ../shared/cJSON.c
 
 test: test.c
 	gcc -o test test.c
+	
+dummyclient: dummyclient.c
+	gcc -o client dummyclient.c $(NETLIB)
 
 clean:
 	rm *.o

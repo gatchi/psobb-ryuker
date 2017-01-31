@@ -37,30 +37,15 @@ int main (void)
 	unsigned char dp[5] = {0};  // Dummy array for pressing enter in menus
 	unsigned char c;            // Generic char for mostly key presses
 
-#ifdef _WIN32
+#ifndef _WIN32
+	printf ("\n");
+#else
 	// Starts off with setting the server installer window title
 	unsigned char ctitle[30] = {0};
 	sprintf (ctitle, "Ryuker Ship Server %s", SERVER_VERSION);
 	SetConsoleTitle (ctitle);
-	
-	// Negotiate with winsock (windows networking) to get winsock data by providing version request
-	WSADATA winsock_data;
-	if ( !WSAStartup(MAKEWORD(2,2), &winsock_data) )
-	{
-		printf ("Press [ENTER] to start setup...");
-		fgets (dp, 2, stdin);
-	}
-	else
-	{
-		printf ("Could not negotiate with winsock.\n");
-		printf ("Press [ENTER] to quit...");
-		fgets (dp, 2, stdin);
-		exit (1);
-	}
-#else
-	printf ("\n");
-	printf ("Welcome to Ryuker PSOBB server program.\n");
 #endif
+	printf ("Welcome to Ryuker PSOBB server program.\n");
 	
 	/*
 	   In the original file, this is the part where configuration files are loaded:
@@ -84,16 +69,15 @@ int main (void)
 	   Its not actually used in the load_config function, nor in load_mask.
 	 */
 	
-	// If config file exists
+	// If config file exists, proceed
 	FILE * cf = fopen (CONFIG_FILE, "r+");
 	if (cf != NULL)
 	{
-		// shit happens here
-		printf ("Config file found, press [ENTER] to continue.");
-		gets (dp);
+		printf ("Config file found.\n");
+		fclose (cf);
 	}
 	
-	// If config file doesnt exist
+	// If config file doesnt exist, create config file as its required
 	else
 	{
 		// Prompt to create config file
@@ -161,27 +145,30 @@ int main (void)
 		gets (dp);
 	}
 	
-	// Now lets load ship.json
-	
-	fclose (cf);
-	
 	/*
-	   Then it appears to get data from a packet (logon packet?) for setting up network
-	   parameters for the ship and for connecting to the logon server.  It then tries to connect.
-	
-	   Then it allocates memory for ship blocks
-	
-	   Then, much later after other files have loaded, it loads ban data
-	
-	   Then it opens up the ship ports for connections
-	
-	   Then what looks like tray icon loading
-	
-	   Then a MASSIVE for loop at the end, im guessing for actual ship stuff
+	 * Ok, lets connect to logon server.
+	 *
+	 * First we gotta setup the the ship server.
+	 * In Windows, this is
+	 * - make socket
+	 * - bind socket
+	 * - start listening
+	 * - accept when client connects
+	 *
+	 * We will fill parameters using info from the ship json.
+	 * This should always be the last section of code in main,
+	 * as listening is a loop that shouldnt break unless
+	 * - the server is shutdown by the admin (so almost never)
+	 * - the server errors (and ideally immediately restarts)
+	 *
+	 * Im not sure yet how this works in non-Windows machines like
+	 * Linux or Unix so as of now, this server only works on Windows.
 	 */
-	
-	// A loop would go here with server things, but for now, lets just exit
-	return 0;
+#ifdef _WIN32
+	serve();
+#endif
+
+	return 1;  // If we get here we fucked up
 }
 
 void account_creation (void)
@@ -262,4 +249,105 @@ void get_json_string (cJSON * j, unsigned char * name, unsigned short size, unsi
 		cJSON_AddStringToObject (j, name, dname);
 	else
 		cJSON_AddStringToObject (j, name, s);
+}
+
+void networkerror (int error, unsigned char * text)
+{
+	strcat (text, ": %d\n");
+	if (debug) printf (text, WSAGetLastError());
+}
+
+int serve ()
+{	
+	// Negotiate with winsock (windows networking) to get winsock data by providing version request
+	WSADATA winsock_data;
+	if ( !WSAStartup(MAKEWORD(2,2), &winsock_data) )
+		if (debug) printf ("WSAStartup a success.\n");
+	else
+		if (debug) printf ("Could not negotiate with winsock.\n");
+	
+	// Make a socket
+	SOCKET listensock = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	int error = INVALID_SOCKET;
+	if (listensock == error)
+		networkerror (error, "Whoops, fucked up socket");
+	else
+		if (debug) printf ("Socket created.\n");
+	
+	// Open ship config file
+	unsigned char * js = (unsigned char *) calloc (144, sizeof (char));
+	signed int i;
+	FILE * fp;
+	
+	// Convert file to json string
+	fp = fopen (CONFIG_FILE, "r");
+	do
+	{
+		i = fgetc (fp);
+		if (i != EOF) strcat (js, (char*)&i);
+	} while (i != EOF);
+	fclose (fp);
+	
+	// Grab ip address and port from json
+	cJSON * j;
+	//printf (js);
+	j = cJSON_Parse (js);
+	unsigned char *  ipaddr_s = cJSON_GetObjectItem (j, "shipip")->valuestring;
+	int port = cJSON_GetObjectItem (j, "shiport") -> valueint;
+	
+	// Setup sockaddr
+	struct sockaddr_in ssa;
+	ssa . sin_family = AF_INET;
+	ssa . sin_addr.s_addr = inet_addr (ipaddr_s);
+	ssa . sin_port = htons (port);
+	
+	// Bind socket
+	int result = bind (listensock, (SOCKADDR *) &ssa, sizeof(ssa));
+	error = SOCKET_ERROR;
+	if (result == error)
+		networkerror (error, "Binding fucked up");
+	else
+		printf ("Socket bound.\n");
+	
+	// Listen to socket
+	result = listen (listensock, SOMAXCONN);
+	if (result == error)
+		networkerror (error, "Can't listen for some reason: %d\n");
+	else
+		printf ("Listening.\n");
+	
+	// Accept connections
+	SOCKET thesock = accept (listensock, NULL, NULL);
+	if (thesock == INVALID_SOCKET)
+		printf ("Accept failed: %d\n", WSAGetLastError());
+	else
+		printf ("Socket accepted.\n");
+	
+	// Receive data
+	char recvbuff[512] = {0};
+	do
+	{
+		result = recv (thesock, recvbuff, 512, 0);
+		if (result > 0)
+		{
+			printf ("Bytes received: %d\n", result);
+			printf ("Message: %s", recvbuff);
+			// Send back a message
+			char * mesg = "I gotchu\n";
+			int mresult = send (thesock, mesg, (int) strlen(mesg), 0);
+			if (mresult == SOCKET_ERROR)
+				printf ("Couldnt reply: %d\n", WSAGetLastError());
+			else
+				printf ("Sent reply.\n");
+		}
+		else if (result == 0)
+			printf ("Connection closed.\n");
+		else
+			printf ("Connection error: %d\n", WSAGetLastError());
+	} while (result > 0);
+	
+	closesocket (thesock);
+	WSACleanup();
+	printf ("Winsock shutdown.\n");	
+	return 0;
 }

@@ -1,0 +1,7 @@
+*.o
+*.exe
+*.json
+*.txt
+ship
+test.c
+dummyserv.c
