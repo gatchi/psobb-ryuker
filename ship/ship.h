@@ -47,6 +47,18 @@ void get_json_num (cJSON * j, unsigned char * name, signed int dnum);
 
 /*
  * Starts the ship server.
- * Returns 0 if shutdown normally.
+ * 
+ * returns  0 if shutdown normally
+ *          1 if accept error
  */
 int serve ();
+
+/*
+ * Function called when a new client socket is accepted.
+ *
+ * socket   - socket to process
+ *
+ * returns  0 if normal close
+ *          1 if error
+ */
+unsigned int __stdcall startClientSesh (void * socket);

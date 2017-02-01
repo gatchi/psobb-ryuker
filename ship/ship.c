@@ -27,6 +27,7 @@
 
 #include <stdio.h>
 #include <ctype.h>
+#include <process.h>
 #include "ship.h"
 
 #define SERVER_VERSION		"(alpha)"
@@ -267,9 +268,9 @@ int serve ()
 		if (debug) printf ("Could not negotiate with winsock.\n");
 	
 	// Make a socket
-	SOCKET listensock = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	SOCKET ssock = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	int error = INVALID_SOCKET;
-	if (listensock == error)
+	if (ssock == error)
 		networkerror (error, "Whoops, fucked up socket");
 	else
 		if (debug) printf ("Socket created.\n");
@@ -302,7 +303,7 @@ int serve ()
 	ssa . sin_port = htons (port);
 	
 	// Bind socket
-	int result = bind (listensock, (SOCKADDR *) &ssa, sizeof(ssa));
+	int result = bind (ssock, (SOCKADDR*)&ssa, sizeof(ssa));
 	error = SOCKET_ERROR;
 	if (result == error)
 		networkerror (error, "Binding fucked up");
@@ -310,44 +311,78 @@ int serve ()
 		printf ("Socket bound.\n");
 	
 	// Listen to socket
-	result = listen (listensock, SOMAXCONN);
+	result = listen (ssock, SOMAXCONN);
 	if (result == error)
 		networkerror (error, "Can't listen for some reason: %d\n");
 	else
 		printf ("Listening.\n");
 	
 	// Accept connections
-	SOCKET thesock = accept (listensock, NULL, NULL);
-	if (thesock == INVALID_SOCKET)
-		printf ("Accept failed: %d\n", WSAGetLastError());
-	else
-		printf ("Socket accepted.\n");
-	
-	// Receive data
-	char recvbuff[512] = {0};
-	do
+	SOCKET csock;
+	struct sockaddr_in csa;
+	while (1)
 	{
-		result = recv (thesock, recvbuff, 512, 0);
-		if (result > 0)
+		csock = accept (ssock, (SOCKADDR*)&csa, NULL);
+		if (csock == INVALID_SOCKET)
 		{
-			printf ("Bytes received: %d\n", result);
-			printf ("Message: %s", recvbuff);
-			// Send back a message
-			char * mesg = "I gotchu\n";
-			int mresult = send (thesock, mesg, (int) strlen(mesg), 0);
-			if (mresult == SOCKET_ERROR)
-				printf ("Couldnt reply: %d\n", WSAGetLastError());
-			else
-				printf ("Sent reply.\n");
+			printf ("Accept failed: %d\n", WSAGetLastError());
+			closesocket (csock);
+			WSACleanup();
+			printf ("Winsock shutdown.\n");
+			return 1;
 		}
-		else if (result == 0)
-			printf ("Connection closed.\n");
 		else
-			printf ("Connection error: %d\n", WSAGetLastError());
-	} while (result > 0);
+		{
+			printf ("Socket accepted (%s).\n", inet_ntoa (csa.sin_addr));  // why wont this print the ip addr
+			unsigned int threadid;
+			HANDLE thandle = (HANDLE) _beginthreadex (NULL, 0, &startClientSesh, (void *) csock, 0, &threadid);
+		}
+	}
 	
-	closesocket (thesock);
+	// Cleanup
+	closesocket (csock);
 	WSACleanup();
 	printf ("Winsock shutdown.\n");	
 	return 0;
 }
+
+unsigned int __stdcall startClientSesh (void * socket)
+{
+	SOCKET csock = (SOCKET) socket;
+	
+	/*
+	 * Ok, down here lets do some real things.
+	 * 
+	 * Its odd, im not exactly sure what the relationship with the ship
+	 * and logon server is.
+	 * It almost feels like the logon_server is acting on behalf of the client.
+	 * But even then, why would the ship connect to the logon server, instead
+	 * of the other way around....
+	 *
+	 * So something notable in the server loop, is that it waits for a new
+	 * packet from the logon server (reconnects first if its connection has
+	 * timed out).
+	 */
+	
+	// Handle received data
+	char recvbuff[512] = {0};
+	int result;
+	do
+	{
+		result = recv (csock, recvbuff, 512, 0);
+		if (result > 0)
+		{
+			printf ("Got some stuff.\n");
+		}
+		else if (result == 0)
+			printf ("Connection closed.\n");
+		else
+		{
+			printf ("Connection error: %d\n", WSAGetLastError());
+			return 1;
+		}
+	} while (result > 0);
+	
+	return 0;
+}
+

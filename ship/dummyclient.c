@@ -41,11 +41,20 @@ int main()
 	
 	// Send data
 	char * sendbuff = "Hey there, server.\n";
-	result = send (connectsock, sendbuff, (int) strlen(sendbuff), 0);
-	if (result == SOCKET_ERROR)
-		printf ("Can't send: %d\n", WSAGetLastError());
-	else
-		printf ("Data sent\n");
+	char dbuff[5];
+	do
+	{
+		// Wait for input
+		printf ("Send data?\n");
+		gets (dbuff);
+		
+		// Send data
+		result = send (connectsock, sendbuff, (int) strlen(sendbuff), 0);
+		if (result == SOCKET_ERROR)
+			printf ("Can't send: %d\n", WSAGetLastError());
+		else
+			printf ("Data sent\n");
+	} while (1);
 	
 	// Receive data
 	char recvbuff[512] = {0};
@@ -55,12 +64,13 @@ int main()
 		if (result > 0)
 		{
 			printf ("Data received. Message = %s", recvbuff);
-			// Close connection
+			
+			/* // Close connection
 			result = shutdown (connectsock, SD_SEND);
 			if (result == SOCKET_ERROR)
 				printf ("Shutdown failure: %d\n", WSAGetLastError());
 			else
-				printf ("Connection closed.\n");
+				printf ("Connection closed.\n"); */
 		}
 		else if (result == 0)
 			printf ("Connection closed.\n");
