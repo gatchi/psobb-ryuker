@@ -5,3 +5,6 @@
 ship
 test.c
 dummyserv.c
+client
+ship
+serv

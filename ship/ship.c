@@ -291,7 +291,6 @@ int serve ()
 	
 	// Grab ip address and port from json
 	cJSON * j;
-	//printf (js);
 	j = cJSON_Parse (js);
 	unsigned char *  ipaddr_s = cJSON_GetObjectItem (j, "shipip")->valuestring;
 	int port = cJSON_GetObjectItem (j, "shiport") -> valueint;
@@ -333,7 +332,7 @@ int serve ()
 		}
 		else
 		{
-			printf ("Socket accepted (%s).\n", inet_ntoa (csa.sin_addr));  // why wont this print the ip addr
+			printf ("Socket accepted (%s).\n", inet_ntoa (csa.sin_addr));
 			unsigned int threadid;
 			HANDLE thandle = (HANDLE) _beginthreadex (NULL, 0, &startClientSesh, (void *) csock, 0, &threadid);
 		}
