@@ -11,6 +11,9 @@ Dummy client for dummy server.
 	#define SOCKET int
 #endif
 
+#define SHIP_URL 192.168.0.107
+#define SHIP_PORT 5278
+
 void shut_down (SOCKET socket)
 {
 #ifdef _WIN32
@@ -57,8 +60,8 @@ int main()
 	// Setup ship sockaddr
 	struct sockaddr_in ssa;
 	ssa.sin_family = AF_INET;
-	ssa.sin_addr.s_addr = inet_addr("127.0.0.1");
-	ssa.sin_port = htons(5788);
+	ssa.sin_addr.s_addr = inet_addr(SHIP_URL);
+	ssa.sin_port = htons(SHIP_PORT);
 	
 	// Connect to ship socket
 	int result = connect (connectsock, (struct sockaddr *) &ssa, sizeof(ssa));

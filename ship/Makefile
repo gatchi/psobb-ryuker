@@ -32,4 +32,4 @@ clean:
 	rm *.o
 
 cleanest:
-	rm *.o ship_server.exe
+	rm *.o *.exe
