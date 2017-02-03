@@ -11,8 +11,8 @@ Dummy client for dummy server.
 	#define SOCKET int
 #endif
 
-#define SHIP_URL 192.168.0.107
-#define SHIP_PORT 5278
+#define SHIP_URL    "192.168.0.107"
+#define SHIP_PORT   5278
 
 void shut_down (SOCKET socket)
 {

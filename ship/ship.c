@@ -192,9 +192,8 @@ int main (void)
 	 * Im not sure yet how this works in non-Windows machines like
 	 * Linux or Unix so as of now, this server only works on Windows.
 	 */
-#ifdef _WIN32
+
 	serve();
-#endif
 
 	return 1;  // If we get here we fucked up
 }
@@ -380,6 +379,8 @@ int serve ()
 	int activity;
 	struct sockaddr_in csa;
 	int csa_len = sizeof(csa);
+	unsigned char buffer[1025];
+	int valread;  // What is this for...
 	
 	while (1)
 	{
@@ -426,6 +427,32 @@ int serve ()
 				unsigned char * mesg = "Block is full, try again later.\n";
 				if (send(sock, mesg, strlen(mesg), 0) != strlen(mesg) )
 					perror ("send error: ");
+			}
+		}
+		
+		// Check on client connections
+		for (i=0; i < max_clients; i++)
+		{
+			if (FD_ISSET (csock[i], &readlist))
+			{
+				// Here is where real client work happens
+				// TODO
+				
+				valread = read (csock[i], buffer, 1024);
+				
+				// But also to check for disconnects
+				if (valread == 0)
+				{
+					getpeername (csock[i], (SOCKADDR*)&csa, (socklen_t*)&csa_len);
+					printf ("Client left (ip: %s, port: %d)\n", inet_ntoa(csa.sin_addr), ntohs(csa.sin_port));
+					close (csock[i]);
+					csock[i] = 0;  // Free up the dead sock's spot
+				}
+				else  // Print the message
+				{
+					buffer[valread] = '\0';
+					printf ("Message: %s\n", buffer);
+				}
 			}
 		}
 	}
