@@ -20,18 +20,45 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ************************************************************************/
 
-#ifdef _WIN32  // Windows specific includes
+// OS specific includes
+#ifdef _WIN32  // Windows
 #include <windows.h>
 #include <winsock2.h>
+#include <process.h>
+#elif __gnu_linux__  // Desktop Linux
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <errno.h>   // What is this even for....
+#include <string.h>  // These because gcc on my linux machine W H I N E S
+#include <stdlib.h>
 #endif
 
 #include <stdio.h>
 #include <ctype.h>
-#include <process.h>
 #include "ship.h"
 
-#define SERVER_VERSION		"(alpha)"
-#define CONFIG_FILE			"ship.json"
+#define DEBUG 1
+
+#define SERVER_VERSION      "(alpha)"
+#define CONFIG_FILE         "ship.json"
+
+#ifdef __gnu_linux__
+#define SOCKET int
+#define SOCKADDR struct sockaddr
+#define INVALID_SOCKET -1
+#define SOCKET_ERROR -1
+#endif
+
+void shut_down (SOCKET socket)
+{
+#ifdef _WIN32
+	closesocket (socket);
+	WSACleanup();
+	printf ("Winsock shutdown.\n");
+#else
+	close (socket);
+#endif
+}
 
 int main (void)
 {
@@ -254,28 +281,33 @@ void get_json_string (cJSON * j, unsigned char * name, unsigned short size, unsi
 
 void networkerror (int error, unsigned char * text)
 {
-	strcat (text, ": %d\n");
-	if (debug) printf (text, WSAGetLastError());
+#ifdef _WIN32
+	strcat (text, "%d\n");
+	if (DEBUG) printf (text, WSAGetLastError());
+#elif __gnu_linux__
+	perror (text);
+#endif
 }
 
 int serve ()
 {	
-	// Negotiate with winsock (windows networking) to get winsock data by providing version request
+#ifdef _WIN32  // Negotiate with winsock (windows sockets)
 	WSADATA winsock_data;
-	if ( !WSAStartup(MAKEWORD(2,2), &winsock_data) )
-		if (debug) printf ("WSAStartup a success.\n");
+	if ( !WSAStartup(MAKEWORD(2,2), &winsock_data) )  // Send version number
+		if (DEBUG) printf ("WSAStartup a success.\n");
 	else
-		if (debug) printf ("Could not negotiate with winsock.\n");
+		if (DEBUG) printf ("Could not negotiate with winsock.\n");
+#endif
 	
-	// Make a socket
+	// Make a ship socket
 	SOCKET ssock = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	int error = INVALID_SOCKET;
 	if (ssock == error)
 		networkerror (error, "Whoops, fucked up socket");
 	else
-		if (debug) printf ("Socket created.\n");
+		if (DEBUG) printf ("Socket created.\n");
 	
-	// Open ship config file
+	// Open ship config file cause it has network info
 	unsigned char * js = (unsigned char *) calloc (144, sizeof (char));
 	signed int i;
 	FILE * fp;
@@ -294,8 +326,9 @@ int serve ()
 	j = cJSON_Parse (js);
 	unsigned char *  ipaddr_s = cJSON_GetObjectItem (j, "shipip")->valuestring;
 	int port = cJSON_GetObjectItem (j, "shiport") -> valueint;
+	int max_clients = cJSON_GetObjectItem (j, "maxcon") -> valueint;
 	
-	// Setup sockaddr
+	// Setup ship sock address
 	struct sockaddr_in ssa;
 	ssa . sin_family = AF_INET;
 	ssa . sin_addr.s_addr = inet_addr (ipaddr_s);
@@ -305,18 +338,19 @@ int serve ()
 	int result = bind (ssock, (SOCKADDR*)&ssa, sizeof(ssa));
 	error = SOCKET_ERROR;
 	if (result == error)
-		networkerror (error, "Binding fucked up");
+		networkerror (error, "Binding fucked up: ");
 	else
 		printf ("Socket bound.\n");
 	
 	// Listen to socket
 	result = listen (ssock, SOMAXCONN);
 	if (result == error)
-		networkerror (error, "Can't listen for some reason: %d\n");
+		networkerror (error, "Can't listen for some reason: ");
 	else
 		printf ("Listening.\n");
 	
 	// Accept connections
+#ifdef _WIN32         // MULTITHREADED WINDOWS VERS.
 	SOCKET csock;
 	struct sockaddr_in csa;
 	while (1)
@@ -337,6 +371,65 @@ int serve ()
 			HANDLE thandle = (HANDLE) _beginthreadex (NULL, 0, &startClientSesh, (void *) csock, 0, &threadid);
 		}
 	}
+#endif
+
+#ifdef __gnu_linux__  // SELECT VERS.
+	fd_set readlist;           // List of sockets ("file descriptiors" cause linux lol)
+	int * csock = (int *) calloc (max_clients, sizeof(int));
+	int sock;
+	int activity;
+	struct sockaddr_in csa;
+	int csa_len = sizeof(csa);
+	
+	while (1)
+	{
+		// Refresh socket list
+		FD_ZERO (&readlist);       // Zero out the list cause no FD_REMOVE macro lol
+		FD_SET (ssock, &readlist);   // Add socket to list
+		int maxrank = ssock;         // Used in select()
+		for (i=0; i < max_clients; i++)  // Add (valid) clients back to list
+        {
+            if (csock [i] > 0)
+                FD_SET (csock [i], &readlist);
+             
+            if (csock [i] > maxrank)
+                maxrank = csock [i];
+        }
+		
+		// Check for activity (NULL means no timeout)
+		activity = select (maxrank+1, &readlist, NULL, NULL, NULL);
+		if ((activity < 0) && (errno!=EINTR)) 
+			printf ("Select error: ");
+		
+		// Check ship socket for incoming connections
+		if (FD_ISSET (ssock, &readlist));
+		{
+			sock = accept (ssock, (SOCKADDR*)&csa, (socklen_t*)&csa_len);
+			error = INVALID_SOCKET;
+			if (sock == error)
+			{
+				networkerror (error, "Accept failed: ");
+				shut_down (ssock);
+				return 1;
+			}
+			else
+			{
+				printf ("Accepting socket connection (%s).\n", inet_ntoa (csa.sin_addr));
+				for (i=0; i < max_clients; i++)  // Find spot for client
+				{
+					if (csock[i] == 0)
+					{
+						csock[i] == sock;
+						break;
+					}
+				}
+				unsigned char * mesg = "Block is full, try again later.\n";
+				if (send(sock, mesg, strlen(mesg), 0) != strlen(mesg) )
+					perror ("send error: ");
+			}
+		}
+	}
+#endif
 	
 	// Cleanup
 	closesocket (csock);
@@ -345,6 +438,7 @@ int serve ()
 	return 0;
 }
 
+#ifdef _WIN32
 unsigned int __stdcall startClientSesh (void * socket)
 {
 	SOCKET csock = (SOCKET) socket;
@@ -384,4 +478,4 @@ unsigned int __stdcall startClientSesh (void * socket)
 	
 	return 0;
 }
-
+#endif

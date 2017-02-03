@@ -1,7 +1,7 @@
 # PSOBB Ryuker Server
 # Ship Server Makefile
 
-CFLAGS = -I../shared
+CFLAGS = -I../shared -Wno-deprecated-declarations
 COMPILE = gcc $(CFLAGS) -c
 
 ifeq ($(OS), Windows_NT)

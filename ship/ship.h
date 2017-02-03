@@ -53,6 +53,7 @@ void get_json_num (cJSON * j, unsigned char * name, signed int dnum);
  */
 int serve ();
 
+#ifdef _WIN32
 /*
  * Function called when a new client socket is accepted.
  *
@@ -62,3 +63,4 @@ int serve ();
  *          1 if error
  */
 unsigned int __stdcall startClientSesh (void * socket);
+#endif
