@@ -372,63 +372,44 @@ int serve ()
 	}
 #endif
 
-#ifdef __gnu_linux__  // SELECT VERS.
+#ifdef __gnu_linux__  // LINUX SELECT VERS.
 	fd_set readlist;           // List of sockets ("file descriptiors" cause linux lol)
-	int * csock = (int *) calloc (max_clients, sizeof(int));
-	int sock;
+	//int * csock = (int *) calloc (max_clients, sizeof(int));
+	int csock[max_clients];
+	int new_sock;
 	int activity;
 	struct sockaddr_in csa;
 	int csa_len = sizeof(csa);
 	unsigned char buffer[1025];
 	int valread;  // What is this for...
 	
-	while (1)
+	memset (csock, 0, sizeof (int) * max_clients);  // Zero out the array
+	
+	// Setup socket list
+	FD_ZERO (&readlist);         // Zero out the list
+	FD_SET (ssock, &readlist);   // Add socket to list
+	int maxrank = ssock;         // Used in select()
+	
+	int b = 0;
+	while (b == 0)
 	{
-		// Refresh socket list
+		/* // Refresh socket list
 		FD_ZERO (&readlist);       // Zero out the list cause no FD_REMOVE macro lol
 		FD_SET (ssock, &readlist);   // Add socket to list
 		int maxrank = ssock;         // Used in select()
 		for (i=0; i < max_clients; i++)  // Add (valid) clients back to list
         {
-            if (csock [i] > 0)
-                FD_SET (csock [i], &readlist);
+            if (csock[i] > 0)
+                FD_SET (csock[i], &readlist);
              
-            if (csock [i] > maxrank)
-                maxrank = csock [i];
-        }
+            if (csock[i] > maxrank)
+                maxrank = csock[i];
+        } */
 		
-		// Check for activity (NULL means no timeout)
-		activity = select (maxrank+1, &readlist, NULL, NULL, NULL);
+		// Check for activity (loop)
+		activity = select (maxrank + 1, &readlist, NULL, NULL, NULL);
 		if ((activity < 0) && (errno!=EINTR)) 
 			printf ("Select error: ");
-		
-		// Check ship socket for incoming connections
-		if (FD_ISSET (ssock, &readlist));
-		{
-			sock = accept (ssock, (SOCKADDR*)&csa, (socklen_t*)&csa_len);
-			error = INVALID_SOCKET;
-			if (sock == error)
-			{
-				networkerror (error, "Accept failed: ");
-				shut_down (ssock);
-				return 1;
-			}
-			else
-			{
-				printf ("Accepting socket connection (%s).\n", inet_ntoa (csa.sin_addr));
-				for (i=0; i < max_clients; i++)  // Find spot for client
-				{
-					if (csock[i] == 0)
-					{
-						csock[i] == sock;
-						break;
-					}
-				}
-				unsigned char * mesg = "Block is full, try again later.\n";
-				if (send(sock, mesg, strlen(mesg), 0) != strlen(mesg) )
-					perror ("send error: ");
-			}
-		}
 		
 		// Check on client connections
 		for (i=0; i < max_clients; i++)
@@ -440,14 +421,17 @@ int serve ()
 				
 				valread = read (csock[i], buffer, 1024);
 				
-				// But also to check for disconnects
+				// But also to check for disconnects (TODO: This isnt triggering!!)
 				if (valread == 0)
 				{
 					getpeername (csock[i], (SOCKADDR*)&csa, (socklen_t*)&csa_len);
-					printf ("Client left (ip: %s, port: %d)\n", inet_ntoa(csa.sin_addr), ntohs(csa.sin_port));
+					printf ("Client left (%s)\n", inet_ntoa(csa.sin_addr));
+					FD_CLR (csock[i], &readlist);
 					close (csock[i]);
 					csock[i] = 0;  // Free up the dead sock's spot
 				}
+				else if (valread < 0)
+					printf ("Error reading from socket %d.\n", i);
 				else  // Print the message
 				{
 					buffer[valread] = '\0';
@@ -455,13 +439,49 @@ int serve ()
 				}
 			}
 		}
+		
+		// Check ship socket for incoming connections
+		if (FD_ISSET (ssock, &readlist));
+		{
+			new_sock = accept (ssock, (SOCKADDR*)&csa, (socklen_t*)&csa_len);
+			error = INVALID_SOCKET;
+			if (new_sock == error)
+			{
+				networkerror (error, "Accept failed: ");
+				close (new_sock);
+			}
+			else // Preliminary acception, check if room
+			{
+				unsigned char * client_ip = inet_ntoa (csa.sin_addr);
+				int cport = ntohs (csa.sin_port);
+				if (DEBUG) printf ("Request to connect from (%s)....\n", client_ip);
+				for (i=0; i < max_clients; i++)  // Find spot for client
+				{
+					if (csock[i] == 0) // If spot is empty, accept
+					{
+						csock[i] = new_sock;
+						if (DEBUG) printf ("Accepted client socket %d (%s).\n", i, client_ip);
+						FD_SET (new_sock, &readlist);
+						if (new_sock > maxrank)
+							maxrank = new_sock;
+						break;
+					}
+				}
+				if (i == max_clients) // If no empty spots found, reject
+				{
+					printf ("Blocked client (%s) from connecting: block full\n", client_ip);
+					unsigned char * mesg = "Block is full, try again later.\n";
+					if (send(new_sock, mesg, strlen(mesg), 0) != strlen(mesg) )
+						perror ("send error: ");
+					close (new_sock);
+				}
+			}
+		}
 	}
 #endif
 	
 	// Cleanup
-	closesocket (csock);
-	WSACleanup();
-	printf ("Winsock shutdown.\n");	
+	shut_down (ssock);
 	return 0;
 }
 

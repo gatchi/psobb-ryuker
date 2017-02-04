@@ -22,8 +22,6 @@
 
 #include "cJSON.h"
 
-const int debug = 1;
-
 /*
  * Requests text from the user (stdin) and then puts it into the
  * the supplied json.

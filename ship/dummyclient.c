@@ -11,7 +11,7 @@ Dummy client for dummy server.
 	#define SOCKET int
 #endif
 
-#define SHIP_URL    "192.168.0.107"
+#define SHIP_URL    "192.168.0.102"
 #define SHIP_PORT   5278
 
 void shut_down (SOCKET socket)
@@ -92,7 +92,14 @@ int main()
 			perror ("Can't send: ");
 #endif
 		else
+		{
 			printf ("Data sent\n");
+			result = shutdown (connectsock, SD_SEND);
+			if (result == SOCKET_ERROR)
+				printf ("Shutdown failure: %d\n", WSAGetLastError());
+			else
+				printf ("Connection closed.\n");
+		}	
 	} while (1);
 	
 	// Receive data
