@@ -352,9 +352,10 @@ int serve ()
 #ifdef _WIN32         // MULTITHREADED WINDOWS VERS.
 	SOCKET csock;
 	struct sockaddr_in csa;
+	int csa_len = sizeof(csa);
 	while (1)
 	{
-		csock = accept (ssock, (SOCKADDR*)&csa, NULL);
+		csock = accept (ssock, (SOCKADDR*)&csa, &csa_len);
 		if (csock == INVALID_SOCKET)
 		{
 			printf ("Accept failed: %d\n", WSAGetLastError());
