@@ -104,9 +104,7 @@ int main (void)
 		printf ("Config file found.\n");
 		fclose (cf);
 	}
-	
-	// If config file doesnt exist, create config file as its required
-	else
+	else // If config file doesnt exist, create config file as its required
 	{
 		// Prompt to create config file
 		printf ("\nThe configuration file %s appears to be missing.\n", CONFIG_FILE);
@@ -144,11 +142,11 @@ int main (void)
 		get_json_num (shipj, "shiport", 5278);
 		
 		// Max Connections
-		printf ("Max connections? (100-180000) (see INSTALL)");
+		printf ("Max connections? (100-180000) (see INSTALL) [300]: ");
 		get_json_num (shipj, "maxcon", 300);
 		
 		// Login Server IP
-		printf ("Login server IP?:");
+		printf ("Login server IP?: ");
 		get_json_string (shipj, "lgnip", 15, NULL);
 		
 		// Event?
