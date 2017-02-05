@@ -191,7 +191,7 @@ int main (void)
 	 * Linux or Unix so as of now, this server only works on Windows.
 	 */
 
-	serve();
+	serve();  // Right now this is just making ship a very simple server
 
 	return 1;  // If we get here we fucked up
 }
@@ -384,26 +384,29 @@ int serve ()
 	
 	memset (csock, 0, sizeof (int) * max_clients);  // Zero out the array
 	
-	// Setup socket list
-	FD_ZERO (&readlist);         // Zero out the list
-	FD_SET (ssock, &readlist);   // Add socket to list
-	int maxrank = ssock;         // Used in select()
-	
 	int b = 0;
 	while (b == 0)
 	{
-		/* // Refresh socket list
-		FD_ZERO (&readlist);       // Zero out the list cause no FD_REMOVE macro lol
+		// Guess what.
+		// Cause select() fucks up the flags you have to re-zero and re-add shit
+		// at the beginning of the while loop.
+		// Whats even the point of having a remove function...
+		
+		FD_ZERO (&readlist);         // Zero out the list
 		FD_SET (ssock, &readlist);   // Add socket to list
 		int maxrank = ssock;         // Used in select()
-		for (i=0; i < max_clients; i++)  // Add (valid) clients back to list
-        {
-            if (csock[i] > 0)
-                FD_SET (csock[i], &readlist);
-             
-            if (csock[i] > maxrank)
-                maxrank = csock[i];
-        } */
+		
+		for (i=0; i<max_clients; i++) // Add them back to the set 
+		{
+			if (csock[i] > 0) // If valid socket
+			{
+				FD_SET (csock[i], &readlist);
+				
+				if (csock[i] > maxrank)
+					maxrank = csock[i];
+			}
+		}
+		
 		
 		// Check for activity (loop)
 		activity = select (maxrank + 1, &readlist, NULL, NULL, NULL);
@@ -418,7 +421,7 @@ int serve ()
 				// Here is where real client work happens
 				// TODO
 				
-				valread = read (csock[i], buffer, 1024);
+				valread = recv (csock[i], buffer, 1024, 0);
 				
 				// But also to check for disconnects (TODO: This isnt triggering!!)
 				if (valread == 0)
@@ -438,6 +441,8 @@ int serve ()
 				}
 			}
 		}
+		
+		printf ("Passed out client loop.\n");
 		
 		// Check ship socket for incoming connections
 		if (FD_ISSET (ssock, &readlist));
@@ -476,6 +481,8 @@ int serve ()
 				}
 			}
 		}
+		
+		printf ("Passed by ship socket loop.\n");
 	}
 #endif
 	
